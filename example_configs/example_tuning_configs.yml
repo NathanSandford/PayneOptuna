@@ -17,6 +17,7 @@ training:
   batchsize: 512
   epochs: 10000
   patience: 100
+  precision: 16
   random_state: 9786
 tuning:
   trials: 100
