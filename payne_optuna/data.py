@@ -14,7 +14,7 @@ class SpectraHDF5Dataset(Dataset):
 
     :param Union[str,Path] data_file: Path to the HDF5 file containing the dataset
     :param List[str] labels_to_train_on: Stellar Labels to include in the training
-    :param torch.tensortype dtype: Data type of dataset --- torch.cuda.FloatTensor for GPU or torch.FloatTensor for CPU
+    :param dtype: Data type of dataset --- torch.cuda.FloatTensor for GPU or torch.FloatTensor for CPU
     :param Optional[Union[List[transforms],Tuple[transforms],transforms]] transform: PyTorch transform to apply
         to every data instance
 
@@ -30,7 +30,7 @@ class SpectraHDF5Dataset(Dataset):
         self,
         data_file: Union[str, Path],
         labels_to_train_on: List[str],
-        dtype: torch.tensortype,
+        dtype,
         transform: Optional[
             Union[List[transforms], Tuple[transforms], transforms]
         ] = None,
