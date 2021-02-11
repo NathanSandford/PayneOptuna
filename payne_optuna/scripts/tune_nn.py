@@ -109,6 +109,9 @@ class Objective:
             self.logger_dir, name=f"{self.model_name}_{trial.number:02d}"
         )
 
+        # Set Random Seed
+        pl.seed_everything(self.random_state)
+
         # Initialize Trainer
         trainer = pl.Trainer(
             default_root_dir=self.model_dir,
@@ -232,13 +235,21 @@ def main(args):
     model_name = configs["name"]
     storage = f"sqlite:///{Path(configs['paths']['output_dir'])}/{model_name}.db"
 
+    # Initialize Sampler
+    sampler = optuna.samplers.TPESampler(seed=configs["training"]["random_state"])
+
     # Initialize Pruner
     pruner_class = getattr(optuna.pruners, configs["tuning"]["pruner"])
     pruner = pruner_class(**configs["tuning"]["pruner_kwargs"])
 
     # Initialize Study
     study = optuna.create_study(
-        study_name=model_name, direction="minimize", pruner=pruner, storage=storage, load_if_exists=True
+        study_name=model_name,
+        direction="minimize",
+        sampler=sampler,
+        pruner=pruner,
+        storage=storage,
+        load_if_exists=True
     )
 
     # Optimize Model Hyperparameters
