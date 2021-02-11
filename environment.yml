@@ -5,6 +5,7 @@ channels:
   - plotly
 dependencies:
   - python=3.8.*
+  - ipython>=7.20
   - setuptools>=52.0
   - pyyaml>=5.4
   - pytorch>=1.7
@@ -18,3 +19,5 @@ dependencies:
   - pandas>=1.2
   - pytables>=3.6
   - plotly>=4.14
+  - notebook>=6.2
+  - ipywidgets>=7.5
