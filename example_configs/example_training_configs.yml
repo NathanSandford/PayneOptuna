@@ -1,0 +1,31 @@
+name: ExampleTrain
+paths:
+  input_dir: /PATH/TO/DIRECTORY/OF/DATASETS
+  output_dir: /PATH/TO/MODELS
+  spectra_file: example_dataset.h5
+training:
+  labels:
+  - Teff
+  - logg
+  - v_micro
+  - Ca
+  - Sc
+  - Ti
+  - Cr
+  - Fe
+  - Co
+  - Cu
+  - Y
+  - Nd
+  learning_rate: 0.0001
+  optimizer: RAdam
+  train_fraction: 0.8
+  batchsize: 512
+  epochs: 10000
+  patience: 1000
+  random_state: 9786
+architecture:
+  n_layers: 2
+  activation: LeakyReLU
+  n_neurons: 300
+  dropout: 0.0

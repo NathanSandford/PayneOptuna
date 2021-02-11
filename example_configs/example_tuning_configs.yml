@@ -1,0 +1,28 @@
+name: ExampleTune
+paths:
+  input_dir: /PATH/TO/DIRECTORY/OF/DATASETS
+  output_dir: /PATH/TO/MODELS
+  spectra_file: example_dataset.h5
+training:
+  labels:
+  - Teff
+  - logg
+  - v_micro
+  - Fe
+  - Ti
+  - Ca
+  - Cr
+  - Mg
+  train_fraction: 0.8
+  batchsize: 512
+  epochs: 10000
+  patience: 100
+  random_state: 9786
+tuning:
+  trials: 100
+  timeout: 144000
+  pruner: MedianPruner
+  pruner_kwargs:
+    n_startup_trials: 5
+    n_warmup_steps: 200
+    interval_steps: 1
