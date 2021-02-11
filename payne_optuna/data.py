@@ -31,9 +31,7 @@ class SpectraHDF5Dataset(Dataset):
         data_file: Union[str, Path],
         labels_to_train_on: List[str],
         dtype,
-        transform: Optional[
-            Union[List[transforms], Tuple[transforms], transforms]
-        ] = None,
+        transform=None,
     ) -> None:
         super().__init__()
         self.labels_to_train_on = labels_to_train_on
