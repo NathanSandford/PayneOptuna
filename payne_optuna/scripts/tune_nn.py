@@ -46,6 +46,7 @@ class Objective:
             batchsize: int = 512  # Number of spectra/labels to train on at a time
             epochs: int = 10000  # Number of epochs to train for
             patience: int = 1000  # Number of epochs w/o improvement to wait for before stopping early
+            precision: int = 16  # Bit precision of training
             random_state: int = 9876  # Random seed of the training
         )
         tuning = dict(
@@ -76,6 +77,7 @@ class Objective:
         self.batchsize = configs["training"]["batchsize"]
         self.epochs = configs["training"]["epochs"]
         self.patience = configs["training"]["patience"]
+        self.precision = configs["training"]["precision"]
         self.random_state = configs["training"]["random_state"]
         self.dtype = (
             torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
@@ -114,6 +116,7 @@ class Objective:
             profiler=False,
             max_epochs=self.epochs,
             gpus=1 if torch.cuda.is_available() else None,
+            precision=self.precision,
             callbacks=[
                 metrics_callback,
                 checkpoint_callback,
@@ -211,6 +214,7 @@ def main(args):
         batchsize: 512
         epochs: 10000
         patience: 1000
+        precision: 16
         random_state: 9876
     tuning:
         trials: 100

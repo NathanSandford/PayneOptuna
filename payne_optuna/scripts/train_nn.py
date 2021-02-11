@@ -49,6 +49,7 @@ def main(args):
         batchsize: 512
         epochs: 10000
         patience: 1000
+        precision: 16
         random_state: 9876
     architecture:
         n_layers: 2
@@ -107,6 +108,7 @@ def main(args):
         profiler=True,
         max_epochs=configs["training"]["epochs"],
         gpus=1 if torch.cuda.is_available() else None,
+        precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
         progress_bar_refresh_rate=0,
         check_val_every_n_epoch=1,
