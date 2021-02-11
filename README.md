@@ -18,7 +18,7 @@ conda activate payne_optuna
 Some of the packages in environment.yml are not strictly required
 but are anticipated to be useful (i.e., scipy, matplotlib, etc.)
 
-###3. Install payne_optuna <br>
+### 3. Install payne_optuna <br>
 ```bash
 python setup.py develop
 ```
