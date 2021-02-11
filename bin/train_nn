@@ -1,0 +1,10 @@
+#!/usr/bin/env python
+
+"""
+Train the Payne
+"""
+from payne_optuna.scripts import train_nn
+
+
+if __name__ == '__main__':
+    train_nn.main(train_nn.parse_args())

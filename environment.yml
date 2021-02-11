@@ -1,0 +1,20 @@
+name: payne_optuna
+channels:
+  - conda-forge
+  - pytorch
+  - plotly
+dependencies:
+  - python>=3.8
+  - setuptools>=52.0
+  - pyyaml>=5.4
+  - pytorch>=1.7
+  - torchaudio>=0.7
+  - torchvision>=0.8
+  - cudatoolkit>=10.2
+  - pytorch-lightning==1.1.7
+  - optuna>=2.5
+  - tensorboard>=2.4
+  - numpy>=1.19
+  - pandas>=1.2
+  - pytables>=3.6
+  - plotly>=4.14
