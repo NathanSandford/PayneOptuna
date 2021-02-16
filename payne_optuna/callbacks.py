@@ -78,7 +78,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
                 else ""
             )
             pl.utilities.rank_zero_info(
-                f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in" +
+                f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in " +
                 f"top {self.save_top_k} (best: {self.best_model_score:0.2f})"
             )
 
