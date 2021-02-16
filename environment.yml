@@ -1,26 +1,24 @@
 name: payne_optuna
 channels:
-  - conda-forge
-  - pytorch
-  - plotly
+  - defaults
 dependencies:
   - python=3.8.*
   - ipython>=7.20
   - setuptools>=52.0
   - pyyaml>=5.4
-  - pytorch>=1.7
-  - torchaudio>=0.7
-  - torchvision>=0.8
-  - cudatoolkit=10.2.*
-  - pytorch-lightning==1.1.7
-  - optuna>=2.5
-  - tensorboard>=2.4
   - numpy>=1.19
   - pandas>=1.2
   - scipy>=1.6
   - astropy>=4.2
   - pytables>=3.6
-  - matplotlib>=3.3
-  - plotly>=4.14
   - notebook>=6.2
-  - ipywidgets>=7.5
+  - conda-forge::ipywidgets>=7.5
+  - matplotlib>=3.3
+  - pytorch::pytorch>=1.7
+  - pytorch::torchaudio>=0.7
+  - pytorch::torchvision>=0.8
+  - pytorch::cudatoolkit=10.2.*
+  - conda-forge::pytorch-lightning==1.1.7
+  - conda-forge::optuna>=2.5
+  - conda-forge::tensorboard>=2.4
+  - plotly::plotly>=4.14
