@@ -12,13 +12,13 @@ dependencies:
   - astropy>=4.2
   - pytables>=3.6
   - notebook>=6.2
-  - conda-forge::ipywidgets>=7.5
   - matplotlib>=3.3
+  - cudatoolkit=10.2.*
   - pytorch::pytorch>=1.7
   - pytorch::torchaudio>=0.7
   - pytorch::torchvision>=0.8
-  - pytorch::cudatoolkit=10.2.*
   - conda-forge::pytorch-lightning==1.1.7
   - conda-forge::optuna>=2.5
   - conda-forge::tensorboard>=2.4
+  - conda-forge::ipywidgets>=7.5
   - plotly::plotly>=4.14
