@@ -15,11 +15,14 @@ def parse_args(options=None):
     """
     parser = argparse.ArgumentParser(description="Train the Payne")
     parser.add_argument("config_file", help="Training config yaml file")
-    parser.add_argument("--checkpoint", "-ckpt", help="Checkpoint to resume training from")
+    parser.add_argument("--resume", action="store_true", default=False, help="Resume from most recent checkpoint")
+    parser.add_argument("--checkpoint", "-ckpt", help="Checkpoint to resume training from.")
     if options is None:
         args = parser.parse_args()
     else:
         args = parser.parse_args(options)
+    if args.checkpoint and args.resume:
+        args.error("Cannot use both --resume and --checkpoint.")
     return args
 
 
@@ -99,7 +102,12 @@ def main(args):
     pl.seed_everything(configs["training"]["random_state"])
 
     # Set checkpoint if resuming a training session
-    checkpoint = ckpt_dir.joinpath(args.checkpoint) if args.checkpoint else None
+    if args.checkpoint:
+        checkpoint = ckpt_dir.joinpath(args.checkpoint)
+    elif args.restart:
+        checkpoint = sorted(list(ckpt_dir.glob("*.ckpt")))[-1]
+    else:
+        checkpoint = None
 
     # Initialize Trainer
     trainer = pl.Trainer(
