@@ -204,8 +204,8 @@ class LightningPaynePerceptron(pl.LightningModule):
             raise RuntimeError("Cannot currently handle label scaling")
         if return_err:  # Currently returns zeros for error
             return (
-                self.forward(labels).numpy() if to_numpy else self.forward(labels),
+                self.forward(labels).detach.numpy() if to_numpy else self.forward(labels),
                 np.zeros(self.output_dim) if to_numpy else torch.zeros(self.output_dim),
             )
         else:
-            return self.forward(labels).numpy() if to_numpy else self.forward(labels)
+            return self.forward(labels).detach.numpy() if to_numpy else self.forward(labels)
