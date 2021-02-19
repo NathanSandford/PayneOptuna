@@ -91,26 +91,9 @@ class SpectraHDF5Dataset(Dataset):
         scaled_labels = num.div(den, axis=0) - 0.5
         return scaled_labels, x_min, x_max
 
-    def _load_spectrum(self, idx):
-        # Load Labels
-        spectrum = pd.read_hdf(self.data_file, "spectra", start=idx, stop=idx + 1)
-        return spectrum
-
     def _load_spectra(self):
         spectra = pd.read_hdf(self.data_file, "spectra")
         return spectra
-
-
-class ToTensor(object):
-    def __init__(self, dtype):
-        self.dtype = dtype
-
-    def __call__(self, sample):
-        label, spectrum = sample["labels"], sample["spectrum"]
-        return {
-            "labels": torch.from_numpy(label.values).type(self.dtype),
-            "spectrum": torch.from_numpy(spectrum.values).type(self.dtype),
-        }
 
 
 class PayneDataModule(pl.LightningDataModule):
