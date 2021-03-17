@@ -50,7 +50,7 @@ def validation_plots(
     ax4 = plt.subplot(gs[2, :])
     ax4.hist2d(
         approx_err.ravel(),
-        valid_spec,
+        valid_spec.ravel(),
         bins=[10.0 ** (np.arange(-4, -1, 0.1)), np.arange(0, 1, 0.05)],
     )
     ax4.set_xscale('log')
