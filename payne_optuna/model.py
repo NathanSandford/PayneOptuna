@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import pytorch_lightning as pl
 from . import radam
+from .utils import j_nu, interp
 
 
 class PaynePerceptron(torch.nn.Module):
@@ -169,43 +170,198 @@ class LightningPaynePerceptron(pl.LightningModule):
         self.wavelength = meta["wave"]
         self.labels = meta["labels"]
 
-    def spec(
-        self,
-        labels: Union[List[float], np.ndarray, torch.Tensor],
-        scaled_labels: bool = True,
-        return_err: bool = False,
-        to_numpy: bool = True,
-    ) -> Union[
-        np.ndarray,
-        torch.Tensor,
-        Tuple[Union[np.ndarray, torch.Tensor], Union[np.ndarray, torch.Tensor]],
-    ]:
-        """
-        Wrapper of self.forward() to handle non-tensor input labels. Useful for fitting.
-        ToDo: Allow for unscaled input labels.
 
-        :param Union[List[float], np.ndarray, torch.Tensor] labels: Input labels.
-        :param bool scaled_labels: Are the input labels pre-scaled --- at present unscaled labels are not accepted.
-            Default = True.
-        :param bool return_err: Return model errors --- at present just returns array/tensor of zeros.
-            Default = False.
-        :param bool to_numpy: Return np.ndarray instead of torch.Tensor. Default = True.
-        :return Union[np.ndarray,torch.Tensor,Tuple[Union[np.ndarray,torch.Tensor],Union[np.ndarray,torch.Tensor]]]:
-            Spectrum or tuple of Spectrum & Model Errors (if return_err = True).
-            Data type will be np.ndarray if to_numpy = True otherwise torch.Tensor
-        """
-        if isinstance(labels, np.ndarray):
-            labels = torch.from_numpy(labels).to(torch.float32)
-        elif isinstance(labels, list):
-            labels = torch.FloatTensor(labels)
-        elif not isinstance(labels, torch.Tensor):
-            raise TypeError("labels must be torch.Tensor, np.ndarray, list, or tuple")
-        if not scaled_labels:
-            raise RuntimeError("Cannot currently handle label scaling")
-        if return_err:  # Currently returns zeros for error
-            return (
-                self.forward(labels).detach.numpy() if to_numpy else self.forward(labels),
-                np.zeros(self.output_dim) if to_numpy else torch.zeros(self.output_dim),
-            )
+class PayneEmulator:
+    def __init__(
+        self,
+        model,
+        model_errs,
+        cont_deg,
+        cont_wave_norm_range=(-10,10),
+        obs_wave=None
+    ):
+        self.model = model
+        self.mod_wave = torch.from_numpy(self.model.wavelength)
+        if model_errs is None:
+            self.model_errs = torch.zeros_like(self.mod_wave)
         else:
-            return self.forward(labels).detach.numpy() if to_numpy else self.forward(labels)
+            if not isinstance(model_errs, torch.Tensor):
+                self.model_errs = torch.from_numpy(model_errs).to(torch.float32)
+            else:
+                self.model_errs = model_errs
+        self.labels = model.labels
+        self.x_min = torch.Tensor(list(model.x_min.values()))
+        self.x_max = torch.Tensor(list(model.x_max.values()))
+
+        self.cont_deg = cont_deg
+        self.cont_wave_norm_range = cont_wave_norm_range
+
+        if obs_wave is None:
+            self.obs_wave = self.mod_wave
+        else:
+            self.obs_wave = torch.from_numpy(obs_wave) if not isinstance(obs_wave, torch.Tensor) else obs_wave
+        self.obs_norm_wave, self.wave_norm_offset, self.wave_norm_scale = self.scale_wave(self.obs_wave)
+        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.cont_deg + 1)], dim=0)
+
+    def scale_labels(self, labels):
+        scaled_labels = (labels - self.x_min) / (self.x_max - self.x_min) - 0.5
+        return scaled_labels
+
+    def rescale_labels(self, scaled_labels):
+        rescaled_labels = (scaled_labels + 0.5) * (self.x_max - self.x_min) + self.x_min
+        return rescaled_labels
+
+    def scale_wave(self, wave):
+        old_len = wave[:, -1] - wave[:, 0]
+        new_len = self.cont_wave_norm_range[1] - self.cont_wave_norm_range[0]
+        offset = (wave[:, -1] * self.cont_wave_norm_range[0] - wave[:, 0] * self.cont_wave_norm_range[1]) / old_len
+        scale = new_len / old_len
+        new_wave = offset[:, np.newaxis] + scale[:, np.newaxis] * wave
+        return new_wave, offset, scale
+
+    @staticmethod
+    def calc_cont(coeffs, wave_):
+        cont_flux = torch.einsum('ij, ijk -> jk', coeffs, wave_)
+        return cont_flux
+
+    @staticmethod
+    def doppler_shift(wave, flux, errs, rv, fill=1):
+        c = torch.tensor([2.99792458e5])  # km/s
+        doppler_factor = torch.sqrt((1 - rv / c) / (1 + rv / c))
+        new_wave = wave.unsqueeze(0) * doppler_factor.unsqueeze(-1)
+        shifted_flux = interp(wave, flux, new_wave, fill)
+        shifted_errs = interp(wave, errs, new_wave, fill)
+        return shifted_flux.squeeze(), shifted_errs.squeeze()
+
+    @staticmethod
+    def inst_broaden(wave, flux, errs, R_out, R_in=None):
+        sigma_out = (R_out * 2.355) ** -1
+        if R_in is None:
+            sigma_in = 0.0
+        else:
+            sigma_in = (R_in * 2.355) ** -1
+        sigma = torch.sqrt(sigma_out ** 2 - sigma_in ** 2)
+        inv_res_grid = torch.diff(torch.log(wave))
+        dx = torch.median(inv_res_grid)
+        ss = torch.fft.rfftfreq(wave.shape[-1], d=dx)
+        kernel = torch.exp(-2 * (np.pi ** 2) * (sigma ** 2) * (ss ** 2))
+        flux_ff = np.fft.rfft(flux)
+        errs_ff = np.fft.rfft(errs)
+        flux_ff *= kernel
+        errs_ff *= kernel
+        flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
+        errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
+        return flux_conv, errs_conv
+
+    @staticmethod
+    def vmacro_broaden(wave, flux, errs, vmacro):
+        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
+        eff_wave = torch.median(wave)
+        freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
+        flux_ff = torch.fft.rfft(flux)
+        errs_ff = torch.fft.rfft(errs)
+        sigma = vmacro / 3e5 * eff_wave  # Is there a better kernel that doesn't rely on eff_wave
+        kernel = torch.exp(-2 * (np.pi * sigma * freq) ** 2)
+        flux_ff *= kernel
+        errs_ff *= kernel
+        flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
+        errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
+        return flux_conv.squeeze(), errs_conv.squeeze()
+
+    '''
+    Old vmacro broadening using Gaussian Kernel instead of FFTs
+    '''
+    #@staticmethod
+    #def vmacro_broaden(wave, flux, errs, vmacro, ks=21):
+    #    n_spec = flux.shape[0]
+    #    d_wave = wave[1] - wave[0]
+    #    eff_wave = torch.median(wave)
+    #    loc = (torch.arange(ks) - (ks - 1) // 2) * d_wave
+    #    scale = vmacro / 3e5 * eff_wave
+    #    norm = torch.distributions.normal.Normal(
+    #        loc=torch.zeros(ks, 1),
+    #        scale=scale.view(1, -1).repeat(ks, 1)
+    #    )
+    #    kernel = norm.log_prob(loc.view(-1, 1).repeat(1, n_spec)).exp()
+    #    kernel = kernel / kernel.sum(axis=0)
+    #    conv_spec = torch.nn.functional.conv1d(
+    #        input=flux.view(1, n_spec, -1),
+    #        weight=kernel.T.view(n_spec, 1, -1),
+    #        padding=ks // 2,
+    #        groups=n_spec,
+    #    )
+    #    conv_errs = torch.nn.functional.conv1d(
+    #        input=errs.repeat(1, n_spec, 1),
+    #        weight=kernel.T.view(n_spec, 1, -1),
+    #        padding=ks // 2,
+    #        groups=n_spec,
+    #    )
+    #    return conv_spec.squeeze(), conv_errs.squeeze()
+
+    @staticmethod
+    def rot_broaden(wave, flux, errs, vsini):
+        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
+        freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
+        flux_ff = torch.fft.rfft(flux)
+        errs_ff = torch.fft.rfft(errs)
+        ub = 2.0 * np.pi * vsini * freq[1:]
+        j1_term = j_nu(ub, 1) / ub
+        cos_term = 3.0 * torch.cos(ub) / (2 * ub ** 2)
+        sin_term = 3.0 * torch.sin(ub) / (2 * ub ** 3)
+        sb = j1_term - cos_term + sin_term
+        # Clean up rounding errors at low frequency; Should be safe for vsini > 0.1 km/s
+        sb[freq[1:] < freq[1:][torch.argmax(sb)]] = 1.0
+        flux_ff *= torch.cat([torch.Tensor([1.0]), sb])
+        errs_ff *= torch.cat([torch.Tensor([1.0]), sb])
+        flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
+        errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
+        return flux_conv, errs_conv
+
+    def __call__(self, x, rv, vmacro, poly_coeffs, vsini=None):
+        # Model Spectrum
+        norm_flux = self.model(x)
+        # Instrumental Broadening
+        conv_flux, conv_errs = self.inst_broaden(
+            self.mod_wave,
+            spec=norm_flux,
+            errs=self.model_errs,
+            vmacro=vmacro,
+        )
+        # Macroturbulent Broadening
+        conv_flux, conv_errs = self.vmacro_broaden(
+            self.mod_wave,
+            spec=conv_flux,
+            errs=conv_errs,
+            vmacro=vmacro,
+        )
+        # Rotational Broadening
+        if vsini is not None:
+            conv_flux, conv_errs = self.rot_broaden(
+                spec=conv_flux,
+                errs=conv_errs,
+                vsini=vsini,
+            )
+        # RV Shift
+        shifted_flux, shifted_errs = self.doppler_shift(
+            wave=self.mod_wave,
+            spec=conv_flux,
+            errs=conv_errs,
+            rv=rv * self.rv_scale,
+            fill=1.0,
+        )
+        # Interpolate to Observed Wavelength
+        intp_flux = interp(
+            x=self.mod_wave,
+            y=shifted_flux,
+            x_new=self.obs_wave,
+            fill=1.0,
+        )
+        intp_errs = interp(
+            x=self.mod_wave,
+            y=shifted_errs,
+            x_new=self.obs_wave,
+            fill=1.0,
+        )
+        # Calculate Continuum Flux
+        cont_flux = self.calc_cont(poly_coeffs, self.obs_wave_)
+        return intp_flux * cont_flux, intp_errs * cont_flux
