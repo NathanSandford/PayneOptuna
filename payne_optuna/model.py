@@ -317,34 +317,38 @@ class PayneEmulator:
         errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         return flux_conv, errs_conv
 
-    def __call__(self, x, rv, vmacro, poly_coeffs, vsini=None):
+    def __call__(self, x, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         # Model Spectrum
         norm_flux = self.model(x)
         # Instrumental Broadening
-        conv_flux, conv_errs = self.inst_broaden(
-            self.mod_wave,
-            spec=norm_flux,
-            errs=self.model_errs,
-            vmacro=vmacro,
-        )
+        if inst_res is not None:
+            conv_flux, conv_errs = self.inst_broaden(
+                self.mod_wave,
+                flux=norm_flux,
+                errs=self.model_errs,
+                vmacro=vmacro,
+            )
+        else:
+            conv_flux = norm_flux
+            conv_errs = self.model_errs
         # Macroturbulent Broadening
         conv_flux, conv_errs = self.vmacro_broaden(
             self.mod_wave,
-            spec=conv_flux,
+            flux=conv_flux,
             errs=conv_errs,
             vmacro=vmacro,
         )
         # Rotational Broadening
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
-                spec=conv_flux,
+                flux=conv_flux,
                 errs=conv_errs,
                 vsini=vsini,
             )
         # RV Shift
         shifted_flux, shifted_errs = self.doppler_shift(
             wave=self.mod_wave,
-            spec=conv_flux,
+            flux=conv_flux,
             errs=conv_errs,
             rv=rv * self.rv_scale,
             fill=1.0,
@@ -363,5 +367,5 @@ class PayneEmulator:
             fill=1.0,
         )
         # Calculate Continuum Flux
-        cont_flux = self.calc_cont(poly_coeffs, self.obs_wave_)
+        cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
         return intp_flux * cont_flux, intp_errs * cont_flux
