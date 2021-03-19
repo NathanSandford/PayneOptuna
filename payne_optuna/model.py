@@ -181,6 +181,7 @@ class PayneEmulator:
         cont_wave_norm_range=(-10,10),
         obs_wave=None,
         model_res=None,
+        vmacro_method='rt_fft',
     ):
         self.model = model
         self.mod_wave = torch.from_numpy(self.model.wavelength)
@@ -197,6 +198,15 @@ class PayneEmulator:
 
         self.model_res = model_res
         self.rv_scale = rv_scale
+        if vmacro_method == 'rt_fft':
+            self.vmacro_broaden = self.vmacro_rt_broaden_fft
+        elif vmacro_method == 'iso_fft':
+            self.vmacro_broaden = self.vmacro_iso_broaden_fft
+        elif vmacro_method == 'iso':
+            self.vmacro_broaden = self.vmacro_iso_broaden
+        else:
+            print("vmacro_method not recognized, defaulting to 'iso'")
+            self.vmacro_broaden = self.vmacro_iso_broaden
 
         self.cont_deg = cont_deg
         self.cont_wave_norm_range = cont_wave_norm_range
@@ -259,14 +269,28 @@ class PayneEmulator:
         return flux_conv, errs_conv
 
     @staticmethod
-    def vmacro_broaden(wave, flux, errs, vmacro):
+    def vmacro_iso_broaden_fft(wave, flux, errs, vmacro):
         dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
         eff_wave = torch.median(wave)
         freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
         flux_ff = torch.fft.rfft(flux)
         errs_ff = torch.fft.rfft(errs)
-        sigma = vmacro / 3e5 * eff_wave  # Is there a better kernel that doesn't rely on eff_wave
-        kernel = torch.exp(-2 * (np.pi * sigma * freq) ** 2)
+        kernel = torch.exp(-2 * (np.pi * vmacro * freq) ** 2)
+        flux_ff *= kernel
+        errs_ff *= kernel
+        flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
+        errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
+        return flux_conv.squeeze(), errs_conv.squeeze()
+
+    @staticmethod
+    def vmacro_rt_broaden_fft(wave, flux, errs, vmacro):
+        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
+        eff_wave = torch.median(wave)
+        freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
+        flux_ff = torch.fft.rfft(flux)
+        errs_ff = torch.fft.rfft(errs)
+        kernel = (1 - torch.exp(-1*(np.pi*vmacro*freq)**2))/(np.pi*vmacro*freq)**2
+        kernel[0] = 1.0
         flux_ff *= kernel
         errs_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
@@ -276,32 +300,32 @@ class PayneEmulator:
     '''
     Old vmacro broadening using Gaussian Kernel instead of FFTs
     '''
-    #@staticmethod
-    #def vmacro_broaden(wave, flux, errs, vmacro, ks=21):
-    #    n_spec = flux.shape[0]
-    #    d_wave = wave[1] - wave[0]
-    #    eff_wave = torch.median(wave)
-    #    loc = (torch.arange(ks) - (ks - 1) // 2) * d_wave
-    #    scale = vmacro / 3e5 * eff_wave
-    #    norm = torch.distributions.normal.Normal(
-    #        loc=torch.zeros(ks, 1),
-    #        scale=scale.view(1, -1).repeat(ks, 1)
-    #    )
-    #    kernel = norm.log_prob(loc.view(-1, 1).repeat(1, n_spec)).exp()
-    #    kernel = kernel / kernel.sum(axis=0)
-    #    conv_spec = torch.nn.functional.conv1d(
-    #        input=flux.view(1, n_spec, -1),
-    #        weight=kernel.T.view(n_spec, 1, -1),
-    #        padding=ks // 2,
-    #        groups=n_spec,
-    #    )
-    #    conv_errs = torch.nn.functional.conv1d(
-    #        input=errs.repeat(1, n_spec, 1),
-    #        weight=kernel.T.view(n_spec, 1, -1),
-    #        padding=ks // 2,
-    #        groups=n_spec,
-    #    )
-    #    return conv_spec.squeeze(), conv_errs.squeeze()
+    @staticmethod
+    def vmacro_iso_broaden(wave, flux, errs, vmacro, ks=21):
+        n_spec = flux.shape[0]
+        d_wave = wave[1] - wave[0]
+        eff_wave = torch.median(wave)
+        loc = (torch.arange(ks) - (ks - 1) // 2) * d_wave
+        scale = vmacro / 3e5 * eff_wave
+        norm = torch.distributions.normal.Normal(
+            loc=torch.zeros(ks, 1),
+            scale=scale.view(1, -1).repeat(ks, 1)
+        )
+        kernel = norm.log_prob(loc.view(-1, 1).repeat(1, n_spec)).exp()
+        kernel = kernel / kernel.sum(axis=0)
+        conv_spec = torch.nn.functional.conv1d(
+            input=flux.view(1, n_spec, -1),
+            weight=kernel.T.view(n_spec, 1, -1),
+            padding=ks // 2,
+            groups=n_spec,
+        )
+        conv_errs = torch.nn.functional.conv1d(
+            input=errs.repeat(1, n_spec, 1),
+            weight=kernel.T.view(n_spec, 1, -1),
+            padding=ks // 2,
+            groups=n_spec,
+        )
+        return conv_spec.squeeze(), conv_errs.squeeze()
 
     @staticmethod
     def rot_broaden(wave, flux, errs, vsini):
@@ -345,7 +369,7 @@ class PayneEmulator:
             )
         # Macroturbulent Broadening
         conv_flux, conv_errs = self.vmacro_broaden(
-            self.mod_wave,
+            wave=self.mod_wave,
             flux=conv_flux,
             errs=conv_errs,
             vmacro=vmacro,
