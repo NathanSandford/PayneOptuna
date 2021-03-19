@@ -1,6 +1,20 @@
 import numpy as np
 import torch
 
+
+def ensure_tensor(input_, precision=torch.float32):
+    if isinstance(input_, torch.Tensor):
+        return input_.to(precision)
+    elif isinstance(input_, np.ndarray):
+        return torch.from_numpy(input_).to(precision)
+    elif isinstance(input_, (int, float)):
+        return torch.Tensor([input_]).to(precision)
+    elif isinstance(input_, list):
+        return torch.Tensor(input_).to(precision)
+    else:
+        raise TypeError(f"input_ type ({type(input_)}) cannot be converted to a Tensor")
+
+
 def j_nu(x, nu, n_tau=100):
     x_ = x.view(-1, 1)
     tau = torch.linspace(0, np.pi, n_tau).view(1,-1)
