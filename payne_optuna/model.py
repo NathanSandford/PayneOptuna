@@ -177,8 +177,10 @@ class PayneEmulator:
         model,
         model_errs,
         cont_deg,
+        rv_scale=100,
         cont_wave_norm_range=(-10,10),
-        obs_wave=None
+        obs_wave=None,
+        model_res=None,
     ):
         self.model = model
         self.mod_wave = torch.from_numpy(self.model.wavelength)
@@ -192,6 +194,9 @@ class PayneEmulator:
         self.labels = model.labels
         self.x_min = torch.Tensor(list(model.x_min.values()))
         self.x_max = torch.Tensor(list(model.x_max.values()))
+
+        self.model_res = model_res
+        self.rv_scale = rv_scale
 
         self.cont_deg = cont_deg
         self.cont_wave_norm_range = cont_wave_norm_range
@@ -225,7 +230,7 @@ class PayneEmulator:
         return cont_flux
 
     @staticmethod
-    def doppler_shift(wave, flux, errs, rv, fill=1):
+    def doppler_shift(wave, flux, errs, rv, fill=1.0):
         c = torch.tensor([2.99792458e5])  # km/s
         doppler_factor = torch.sqrt((1 - rv / c) / (1 + rv / c))
         new_wave = wave.unsqueeze(0) * doppler_factor.unsqueeze(-1)
@@ -233,13 +238,12 @@ class PayneEmulator:
         shifted_errs = interp(wave, errs, new_wave, fill)
         return shifted_flux.squeeze(), shifted_errs.squeeze()
 
-    @staticmethod
-    def inst_broaden(wave, flux, errs, R_out, R_in=None):
-        sigma_out = (R_out * 2.355) ** -1
-        if R_in is None:
+    def inst_broaden(self, wave, flux, errs, inst_res):
+        sigma_out = (inst_res * 2.355) ** -1
+        if self.model_res is None:
             sigma_in = 0.0
         else:
-            sigma_in = (R_in * 2.355) ** -1
+            sigma_in = (self.model_res * 2.355) ** -1
         sigma = torch.sqrt(sigma_out ** 2 - sigma_in ** 2)
         inv_res_grid = torch.diff(torch.log(wave))
         dx = torch.median(inv_res_grid)
@@ -326,18 +330,11 @@ class PayneEmulator:
                 self.mod_wave,
                 flux=norm_flux,
                 errs=self.model_errs,
-                vmacro=vmacro,
+                inst_res=inst_res,
             )
         else:
             conv_flux = norm_flux
             conv_errs = self.model_errs
-        # Macroturbulent Broadening
-        conv_flux, conv_errs = self.vmacro_broaden(
-            self.mod_wave,
-            flux=conv_flux,
-            errs=conv_errs,
-            vmacro=vmacro,
-        )
         # Rotational Broadening
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
@@ -345,6 +342,13 @@ class PayneEmulator:
                 errs=conv_errs,
                 vsini=vsini,
             )
+        # Macroturbulent Broadening
+        conv_flux, conv_errs = self.vmacro_broaden(
+            self.mod_wave,
+            flux=conv_flux,
+            errs=conv_errs,
+            vmacro=vmacro,
+        )
         # RV Shift
         shifted_flux, shifted_errs = self.doppler_shift(
             wave=self.mod_wave,
