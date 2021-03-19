@@ -205,7 +205,8 @@ class PayneEmulator:
             self.obs_wave = self.mod_wave
         else:
             self.obs_wave = torch.from_numpy(obs_wave) if not isinstance(obs_wave, torch.Tensor) else obs_wave
-        self.obs_norm_wave, self.wave_norm_offset, self.wave_norm_scale = self.scale_wave(self.obs_wave)
+        scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
+        self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.cont_deg + 1)], dim=0)
 
     def scale_labels(self, labels):
