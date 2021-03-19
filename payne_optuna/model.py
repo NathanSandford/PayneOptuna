@@ -181,7 +181,7 @@ class PayneEmulator:
         cont_wave_norm_range=(-10,10),
         obs_wave=None,
         model_res=None,
-        vmacro_method='rt_fft',
+        vmacro_method='iso',
     ):
         self.model = model
         self.mod_wave = torch.from_numpy(self.model.wavelength)
@@ -346,6 +346,10 @@ class PayneEmulator:
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
         errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         return flux_conv, errs_conv
+
+    def numpy(self, x, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+        flux, errs = self(x, rv, vmacro, cont_coeffs, inst_res, vsini)
+        return flux.detach().numpy(), errs.detach().numpy()
 
     def __call__(self, x, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         # Model Spectrum
