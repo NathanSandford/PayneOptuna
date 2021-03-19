@@ -302,6 +302,7 @@ class PayneEmulator:
     '''
     @staticmethod
     def vmacro_iso_broaden(wave, flux, errs, vmacro, ks=21):
+        wave = wave.to(torch.float32)
         n_spec = flux.shape[0]
         d_wave = wave[1] - wave[0]
         eff_wave = torch.median(wave)
