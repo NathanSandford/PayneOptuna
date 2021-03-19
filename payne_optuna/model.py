@@ -187,8 +187,8 @@ class PayneEmulator:
         self.mod_wave = ensure_tensor(self.model.wavelength, precision=torch.float64)
         self.mod_errs = ensure_tensor(mod_errs) if mod_errs is not None else torch.zeros_like(self.mod_wave)
         self.labels = model.labels
-        self.x_min = ensure_tensor(list(model.x_min.values()))
-        self.x_max = ensure_tensor(list(model.x_max.values()))
+        self.stellar_labels_min = ensure_tensor(list(model.x_min.values()))
+        self.stellar_labels_max = ensure_tensor(list(model.x_max.values()))
 
         self.model_res = model_res
         self.rv_scale = rv_scale
@@ -203,6 +203,7 @@ class PayneEmulator:
             self.vmacro_broaden = self.vmacro_iso_broaden
 
         self.cont_deg = cont_deg
+        self.n_cont_coeffs = self.cont_deg + 1
         self.cont_wave_norm_range = cont_wave_norm_range
 
         if obs_wave is not None:
@@ -211,16 +212,16 @@ class PayneEmulator:
             self.obs_wave = ensure_tensor(self.mod_wave.view(1, -1), precision=torch.float64)
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
         self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
-        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.cont_deg + 1)], dim=0)
+        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
     def scale_labels(self, labels):
-        scaled_labels = (labels - self.x_min) / (self.x_max - self.x_min) - 0.5
+        scaled_labels = (labels - self.stellar_labels_min) / (self.stellar_labels_max - self.stellar_labels_min) - 0.5
         return scaled_labels
 
     def rescale_labels(self, scaled_labels):
-        rescaled_labels = (scaled_labels + 0.5) * (self.x_max - self.x_min) + self.x_min
+        rescaled_labels = (scaled_labels + 0.5) * (self.stellar_labels_max - self.stellar_labels_min) + self.stellar_labels_min
         return rescaled_labels
 
     def scale_wave(self, wave):
@@ -340,13 +341,13 @@ class PayneEmulator:
         errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         return flux_conv, errs_conv
 
-    def numpy(self, x, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
-        flux, errs = self(x, rv, vmacro, cont_coeffs, inst_res, vsini)
+    def numpy(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+        flux, errs = self(stellar_labels, rv, vmacro, cont_coeffs, inst_res, vsini)
         return flux.detach().numpy(), errs.detach().numpy()
 
-    def __call__(self, x, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+    def __call__(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         # Model Spectrum
-        norm_flux = self.model(x)
+        norm_flux = self.model(stellar_labels)
         # Instrumental Broadening
         if inst_res is not None:
             conv_flux, conv_errs = self.inst_broaden(
