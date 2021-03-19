@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import pytorch_lightning as pl
 from . import radam
-from .utils import j_nu, interp
+from .utils import ensure_tensor, j_nu, interp
 
 
 class PaynePerceptron(torch.nn.Module):
@@ -175,7 +175,7 @@ class PayneEmulator:
     def __init__(
         self,
         model,
-        model_errs,
+        mod_errs,
         cont_deg,
         rv_scale=100,
         cont_wave_norm_range=(-10,10),
@@ -184,17 +184,11 @@ class PayneEmulator:
         vmacro_method='iso',
     ):
         self.model = model
-        self.mod_wave = torch.from_numpy(self.model.wavelength)
-        if model_errs is None:
-            self.model_errs = torch.zeros_like(self.mod_wave)
-        else:
-            if not isinstance(model_errs, torch.Tensor):
-                self.model_errs = torch.from_numpy(model_errs).to(torch.float32)
-            else:
-                self.model_errs = model_errs
+        self.mod_wave = ensure_tensor(self.model.wavelength, precision=torch.float64)
+        self.mod_errs = ensure_tensor(mod_errs) if mod_errs is not None else torch.zeros_like(self.mod_wave)
         self.labels = model.labels
-        self.x_min = torch.Tensor(list(model.x_min.values()))
-        self.x_max = torch.Tensor(list(model.x_max.values()))
+        self.x_min = ensure_tensor(list(model.x_min.values()))
+        self.x_max = ensure_tensor(list(model.x_max.values()))
 
         self.model_res = model_res
         self.rv_scale = rv_scale
@@ -211,13 +205,15 @@ class PayneEmulator:
         self.cont_deg = cont_deg
         self.cont_wave_norm_range = cont_wave_norm_range
 
-        if obs_wave is None:
-            self.obs_wave = self.mod_wave
+        if obs_wave is not None:
+            self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
         else:
-            self.obs_wave = torch.from_numpy(obs_wave) if not isinstance(obs_wave, torch.Tensor) else obs_wave
+            self.obs_wave = ensure_tensor(self.mod_wave.view(1, -1), precision=torch.float64)
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
         self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.cont_deg + 1)], dim=0)
+        self.n_obs_ord = self.obs_wave.shape[0]
+        self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
     def scale_labels(self, labels):
         scaled_labels = (labels - self.x_min) / (self.x_max - self.x_min) - 0.5
@@ -297,9 +293,6 @@ class PayneEmulator:
         errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         return flux_conv.squeeze(), errs_conv.squeeze()
 
-    '''
-    Old vmacro broadening using Gaussian Kernel instead of FFTs
-    '''
     @staticmethod
     def vmacro_iso_broaden(wave, flux, errs, vmacro, ks=21):
         wave = wave.to(torch.float32)
@@ -359,12 +352,12 @@ class PayneEmulator:
             conv_flux, conv_errs = self.inst_broaden(
                 self.mod_wave,
                 flux=norm_flux,
-                errs=self.model_errs,
+                errs=self.mod_errs,
                 inst_res=inst_res,
             )
         else:
             conv_flux = norm_flux
-            conv_errs = self.model_errs
+            conv_errs = self.mod_errs
         # Rotational Broadening
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
