@@ -341,6 +341,57 @@ class PayneEmulator:
         errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         return flux_conv, errs_conv
 
+    def forward_model_spec(self, norm_flux, norm_errs, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+        # Instrumental Broadening
+        if inst_res is not None:
+            conv_flux, conv_errs = self.inst_broaden(
+                self.mod_wave,
+                flux=norm_flux,
+                errs=norm_errs,
+                inst_res=inst_res,
+            )
+        else:
+            conv_flux = norm_flux
+            conv_errs = norm_errs
+        # Rotational Broadening
+        if vsini is not None:
+            conv_flux, conv_errs = self.rot_broaden(
+                flux=conv_flux,
+                errs=conv_errs,
+                vsini=vsini,
+            )
+        # Macroturbulent Broadening
+        conv_flux, conv_errs = self.vmacro_broaden(
+            wave=self.mod_wave,
+            flux=conv_flux,
+            errs=conv_errs,
+            vmacro=vmacro,
+        )
+        # RV Shift
+        shifted_flux, shifted_errs = self.doppler_shift(
+            wave=self.mod_wave,
+            flux=conv_flux,
+            errs=conv_errs,
+            rv=rv * self.rv_scale,
+            fill=1.0,
+        )
+        # Interpolate to Observed Wavelength
+        intp_flux = interp(
+            x=self.mod_wave,
+            y=shifted_flux,
+            x_new=self.obs_wave,
+            fill=1.0,
+        )
+        intp_errs = interp(
+            x=self.mod_wave,
+            y=shifted_errs,
+            x_new=self.obs_wave,
+            fill=1.0,
+        )
+        # Calculate Continuum Flux
+        cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
+        return intp_flux * cont_flux, intp_errs * cont_flux
+
     def numpy(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         flux, errs = self(stellar_labels, rv, vmacro, cont_coeffs, inst_res, vsini)
         return flux.detach().numpy(), errs.detach().numpy()
