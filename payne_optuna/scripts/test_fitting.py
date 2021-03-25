@@ -272,6 +272,7 @@ def main(args):
             obs_errs=mock_errs.squeeze(),
             obs_wave=obs['wave'],
             obs_blaz=obs['blaz'],
+            inst_res=None,
             max_epochs=5000,
             prefit=['cont', 'rv'],
             verbose=True,
@@ -284,7 +285,7 @@ def main(args):
         history = {key: torch.stack(value).squeeze().detach().numpy() for key, value in optimizer.history.items() if key != "loss"}
         history["loss"] = np.array(optimizer.history["loss"])
         np.savez(
-            results_dir.joinpath(f"optimization_history_{i}.npz"),
+            results_dir.joinpath(f"optimization_history_{i:04.0f}.npz"),
             **history
         )
 
