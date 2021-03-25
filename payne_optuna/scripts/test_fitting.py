@@ -285,7 +285,7 @@ def main(args):
         history["loss"] = np.array(optimizer.history["loss"])
         np.savez(
             results_dir.joinpath(f"optimization_history_{i}.npz"),
-            **optimizer.history
+            **history
         )
 
     np.savez(
