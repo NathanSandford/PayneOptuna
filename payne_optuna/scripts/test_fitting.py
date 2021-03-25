@@ -128,7 +128,7 @@ def main(args):
     # Load Configs & Set Paths
     with open(args.config_file) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
-    with open(configs["path"]["training_config"]) as file:
+    with open(configs["paths"]["training_config"]) as file:
         training_configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = training_configs["name"]
     input_dir = Path(training_configs["paths"]["input_dir"])
