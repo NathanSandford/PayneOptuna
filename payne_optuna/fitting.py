@@ -1,6 +1,8 @@
 import numpy as np
+from numpy.polynomial import Polynomial
 import torch
 from .utils import ensure_tensor, j_nu, interp
+import matplotlib.pyplot as plt
 
 
 def mse_loss(pred, target, pred_errs, target_errs):
@@ -287,11 +289,6 @@ class PayneEmulator:
         return intp_flux * cont_flux, intp_errs * cont_flux
 
 
-from payne_optuna.utils import ensure_tensor
-from numpy.polynomial import Polynomial
-import matplotlib.pyplot as plt
-
-
 class PayneOptimizer:
     def __init__(
             self,
@@ -522,7 +519,7 @@ class PayneOptimizer:
             delta_vmacro = self.vmacro - self.history['vmacro'][-1]
             delta_rv = self.rv - self.history['rv'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
-            if epoch % 25 == 0:
+            if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
                     torch.stack(self.cont_coeffs),
                     self.obs_wave_
@@ -530,9 +527,8 @@ class PayneOptimizer:
                 delta_cont = cont - last_cont
                 delta_frac_weighted_cont = delta_cont / cont * self.obs_snr
                 last_cont = cont
-
-            if verbose:
-                print(f"Epoch: {epoch}, Current Loss: {self.loss}")
+                if verbose:
+                    print(f"Epoch: {epoch}, Current Loss: {self.loss:.6f}")
             epoch += 1
 
         # Recover Best Epoch
@@ -543,6 +539,8 @@ class PayneOptimizer:
                             range(self.n_cont_coeffs)]
         self.loss = np.min(self.history['loss'])
         self.best_model, self.best_model_errs = self.forward()
+
+        print(f"Best Epoch: {np.argmin(self.history['loss'])}, Best Loss: {self.loss:.6f}")
 
         if not epoch < max_epochs and verbose:
             print('max_epochs reached')
