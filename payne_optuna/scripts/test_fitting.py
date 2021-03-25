@@ -163,14 +163,14 @@ def main(args):
         mod_errs = np.zeros_like(NN_model.wavelength)
 
     # Set Random Seed
-    seed_everything(configs["training"]["random_state"])
+    seed_everything(training_configs["training"]["random_state"])
 
     # Load Validation Data
     datamodule = PayneDataModule(
         input_file=input_file,
-        labels_to_train_on=configs["training"]["labels"],
-        train_fraction=configs["training"]["train_fraction"],
-        batchsize=configs["training"]["batchsize"],
+        labels_to_train_on=training_configs["training"]["labels"],
+        train_fraction=training_configs["training"]["train_fraction"],
+        batchsize=training_configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
         pin_memory=False,
