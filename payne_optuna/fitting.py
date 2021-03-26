@@ -96,8 +96,8 @@ class PayneEmulator:
         dx = torch.median(inv_res_grid)
         ss = torch.fft.rfftfreq(wave.shape[-1], d=dx)
         kernel = torch.exp(-2 * (np.pi ** 2) * (sigma ** 2) * (ss ** 2))
-        flux_ff = np.fft.rfft(flux)
-        errs_ff = np.fft.rfft(errs)
+        flux_ff = torch.fft.rfft(flux)
+        errs_ff = torch.fft.rfft(errs)
         flux_ff *= kernel
         errs_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
@@ -389,10 +389,11 @@ class PayneOptimizer:
 
     def forward(self):
         mod_flux, mod_errs = self.emulator(
-            self.stellar_labels,
-            self.rv,
-            self.vmacro,
-            torch.stack(self.cont_coeffs),
+            stellar_labels=self.stellar_labels,
+            rv=self.rv,
+            vmacro=self.vmacro,
+            cont_coeffs=torch.stack(self.cont_coeffs),
+            inst_res=self.inst_res
         )
         return mod_flux, mod_errs
 
@@ -402,6 +403,7 @@ class PayneOptimizer:
             obs_errs,
             obs_wave,
             obs_blaz=None,
+            inst_res=None,
             max_epochs=1000,
             prefit=None,
             verbose=False,
@@ -418,6 +420,7 @@ class PayneOptimizer:
         self.obs_wave_ = self.emulator.obs_wave_
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[0]
+        self.inst_res = inst_res
 
         # Initialize Starting Values
         self.prefit = prefit if prefit is not None else []
