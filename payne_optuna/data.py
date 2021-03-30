@@ -78,9 +78,9 @@ class SpectraHDF5Dataset(Dataset):
         # Load Labels
         labels = pd.read_hdf(self.data_file, "labels")
         # Scale by Fe
-        labels.loc[set(labels.index) ^ {"Teff", "logg", "v_micro", "Fe"}] -= labels.loc[
-            "Fe"
-        ]
+      #  labels.loc[set(labels.index) ^ {"Teff", "logg", "v_micro", "Fe"}] -= labels.loc[
+      #      "Fe"
+      #  ]
         # Select labels to train on
         labels = labels.loc[self.labels_to_train_on]
         # Scale Labels
