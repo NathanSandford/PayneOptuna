@@ -37,7 +37,6 @@ def main(args):
     paths:
         input_dir: /PATH/TO/DIRECTORY/OF/SPECTRA
         output_dir: /PATH/TO/DIRECTORY/OF/MODELS
-        spectra_file: training_spectra_and_labels.h5
     training:
         labels:
         - List
@@ -71,7 +70,6 @@ def main(args):
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
     input_dir = Path(configs["paths"]["input_dir"])
-    input_file = input_dir.joinpath(configs["paths"]["spectra_file"])
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
@@ -127,7 +125,7 @@ def main(args):
 
     # Initialize DataModule
     datamodule = PayneDataModule(
-        input_file=input_file,
+        input_dir=input_dir,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
         iron_scale=configs["training"]["iron_scale"],

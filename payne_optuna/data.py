@@ -164,7 +164,7 @@ class PayneDataModule(pl.LightningDataModule):
     """
     Pytorch Lightning DataModule for Payne Spectra.
 
-    :param Union[str,Path] input_file: Path to the HDF5 file containing the dataset
+    :param Union[str,Path] input_dir: Path to directory of HDF5 files containing the dataset
     :param List[str] labels_to_train_on: Stellar Labels to include in the training
     :param bool iron_scale: Scale Labels by [Fe/H]?
     :param train_fraction: Fraction of dataset to train on. The remainder will be used for validation.
@@ -176,7 +176,7 @@ class PayneDataModule(pl.LightningDataModule):
     """
     def __init__(
         self,
-        input_file: Union[str, Path],
+        input_dir: Union[str, Path],
         labels_to_train_on: List[str],
         iron_scale: bool,
         train_fraction: float,
@@ -186,7 +186,7 @@ class PayneDataModule(pl.LightningDataModule):
         pin_memory: bool = False,
     ) -> None:
         super().__init__()
-        self.input_file = input_file
+        self.input_dir = input_dir
         self.labels_to_train_on = labels_to_train_on
         self.iron_scale = iron_scale
         self.train_fraction = train_fraction
@@ -207,7 +207,7 @@ class PayneDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
             dataset = SpectraHDF5Dataset(
-                self.input_file,
+                self.input_dir,
                 self.labels_to_train_on,
                 self.dtype,
                 x_transform=self.x_transform,
