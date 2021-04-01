@@ -28,7 +28,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
     PyTorch Lightning callback to save model checkpoints during training.
     This is only slightly updated from pl.callbacks.ModelCheckpoint to improve the clarity in the print statements.
 
-    :param Union[str,Path] filepath: Path to checkpoint file
+    :param Union[str,Path] dirpath: Path to checkpoint directory
     :param str monitor: Metric to monitor for improvements. Most likely "val-loss" for the Payne.
     :param str mode: "min" or "max" depending on metric. Most likely "min" if monitor = "val-loss".
     :param int period: Number of epochs between checkpoints. Default = 1.
@@ -38,7 +38,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
 
     def __init__(
         self,
-        filepath: Union[str, Path],
+        dirpath: Union[str, Path],
+        filename: str,
         monitor: str,
         mode: str,
         period: int = 1,
@@ -46,7 +47,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         verbose: bool = True,
     ):
         super(CheckpointCallback, self).__init__(
-            filepath=filepath,
+            dirpath=dirpath,
+            filename=filename,
             monitor=monitor,
             mode=mode,
             period=period,
