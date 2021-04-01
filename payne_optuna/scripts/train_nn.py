@@ -46,6 +46,7 @@ def main(args):
         - To
         - Train
         - On
+        iron_scale: False
         learning_rate: 0.0001
         optimizer: RAdam
         train_fraction: 0.8
@@ -129,6 +130,7 @@ def main(args):
         input_file=input_file,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
+        iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
