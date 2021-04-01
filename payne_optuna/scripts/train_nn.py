@@ -104,7 +104,7 @@ def main(args):
     # Set checkpoint if resuming a training session
     if args.checkpoint:
         checkpoint = ckpt_dir.joinpath(args.checkpoint)
-    elif args.restart:
+    elif args.resume:
         checkpoint = sorted(list(ckpt_dir.glob("*.ckpt")))[-1]
     else:
         checkpoint = None
