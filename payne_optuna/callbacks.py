@@ -182,33 +182,29 @@ class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
         # when in dev debugging
         trainer.dev_debugger.track_early_stopping_history(self, current)
 
-        if current is not None:
-            if isinstance(current, pl.metrics.metric.Metric):
-                current = current.compute()
-            elif isinstance(current, numbers.Number):
-                current = torch.tensor(
-                    current, device=pl_module.device, dtype=torch.float
-                )
-
-        if trainer.use_tpu and pl.utilities.TPU_AVAILABLE:
-            current = current.cpu()
+        #if current is not None:
+        #    if isinstance(current, pl.metrics.metric.Metric):
+        #        current = current.compute()
+        #    elif isinstance(current, numbers.Number):
+        #        current = torch.tensor(
+        #            current, device=pl_module.device, dtype=torch.float
+        #        )
+        #
+        #if trainer.use_tpu and pl.utilities.TPU_AVAILABLE:
+        #    current = current.cpu()
 
         if self.monitor_op(current - self.min_delta, self.best_score):
             self.best_score = current
             self.wait_count = 0
-            should_stop = False
         else:
             self.wait_count += 1
-            should_stop = self.wait_count >= self.patience
-
-            if bool(should_stop):
+            if self.wait_count >= self.patience:
                 print("Early Stopping!")
                 self.stopped_epoch = trainer.current_epoch
                 trainer.should_stop = True
 
         # stop every ddp process if any world process decides to stop
-        should_stop = trainer.training_type_plugin.reduce_early_stopping_decision(should_stop)
-        trainer.should_stop = should_stop
+        trainer.should_stop = trainer.training_type_plugin.reduce_boolean_decision(trainer.should_stop)
 
 
 class PruningCallback(pl.callbacks.early_stopping.EarlyStopping):
