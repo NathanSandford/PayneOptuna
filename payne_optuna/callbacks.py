@@ -62,14 +62,6 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         epoch = metrics.get("epoch")
         step = metrics.get("step")
 
-        if current is not None:
-            if isinstance(current, pl.metrics.metric.Metric):
-                current = current.compute()
-            elif isinstance(current, numbers.Number):
-                current = torch.tensor(
-                    current, device=pl_module.device, dtype=torch.float
-                )
-
         if self.check_monitor_top_k(current):
             self._update_best_and_save(
                 current, epoch, step, trainer, pl_module, metrics
@@ -82,7 +74,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             )
             pl.utilities.rank_zero_info(
                 f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in " +
-                f"top {self.save_top_k} (best: {self.best_model_score:0.2f})"
+                f"top {self.save_top_k}"
             )
 
     def _update_best_and_save(
@@ -101,9 +93,9 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             del_filepath = self.kth_best_model_path
             self.best_k_models.pop(del_filepath)
 
-        # do not save nan, replace with +/- inf
-        if torch.isnan(current):
-            current = torch.tensor(float("inf" if self.mode == "min" else "-inf"))
+            # do not save nan, replace with +/- inf
+            if isinstance(current, torch.Tensor) and torch.isnan(current):
+                current = torch.tensor(float('inf' if self.mode == "min" else '-inf'))
 
         filepath = self._get_metric_interpolated_filepath_name(
             ckpt_name_metrics, epoch, step, trainer, del_filepath
