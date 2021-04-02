@@ -62,7 +62,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         epoch = metrics.get("epoch")
         step = metrics.get("step")
 
-        if self.check_monitor_top_k(current):
+        if self.check_monitor_top_k(trainer, current):
             self._update_best_and_save(
                 current, epoch, step, trainer, pl_module, metrics
             )
@@ -74,7 +74,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             )
             pl.utilities.rank_zero_info(
                 f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in " +
-                f"top {self.save_top_k}"
+                f"top {self.save_top_k} (best: {self.best_model_score:0.2f})"
             )
 
     def _update_best_and_save(
