@@ -28,7 +28,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
     PyTorch Lightning callback to save model checkpoints during training.
     This is only slightly updated from pl.callbacks.ModelCheckpoint to improve the clarity in the print statements.
 
-    :param Union[str,Path] filepath: Path to checkpoint file
+    :param Union[str,Path] dirpath: Path to checkpoint directory
+    :param str filename: Formatting for checkpoint file names
     :param str monitor: Metric to monitor for improvements. Most likely "val-loss" for the Payne.
     :param str mode: "min" or "max" depending on metric. Most likely "min" if monitor = "val-loss".
     :param int period: Number of epochs between checkpoints. Default = 1.
@@ -38,7 +39,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
 
     def __init__(
         self,
-        filepath: Union[str, Path],
+        dirpath: Union[str, Path],
+        filename: str,
         monitor: str,
         mode: str,
         period: int = 1,
@@ -46,7 +48,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         verbose: bool = True,
     ):
         super(CheckpointCallback, self).__init__(
-            filepath=filepath,
+            dirpath=dirpath,
+            filename=filename,
             monitor=monitor,
             mode=mode,
             period=period,
@@ -193,6 +196,7 @@ class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
         if self.monitor_op(current - self.min_delta, self.best_score):
             self.best_score = current
             self.wait_count = 0
+            should_stop = False
         else:
             self.wait_count += 1
             should_stop = self.wait_count >= self.patience
@@ -203,7 +207,7 @@ class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
                 trainer.should_stop = True
 
         # stop every ddp process if any world process decides to stop
-        should_stop = trainer.accelerator_backend.early_stopping_should_stop(pl_module)
+        should_stop = trainer.training_type_plugin.reduce_early_stopping_decision(should_stop)
         trainer.should_stop = should_stop
 
 

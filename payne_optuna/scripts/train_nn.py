@@ -64,6 +64,7 @@ def main(args):
     # Set Tensor Type
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     torch.set_default_tensor_type(dtype)
+    print(f'Default tensor type: {dtype}')
 
     # Load Configs & Set Paths
     with open(args.config_file) as file:
@@ -82,7 +83,8 @@ def main(args):
     # Initialize Callbacks
     metrics_callback = MetricsCallback(["train-loss", "val-loss"])
     checkpoint_callback = CheckpointCallback(
-        filepath=ckpt_dir.joinpath("{epoch:05d}-{val-loss:.2f}"),
+        dirpath=ckpt_dir,
+        filename="{epoch:05d}-{val-loss:.2f}",
         monitor="val-loss",
         mode="min",
         period=1,
@@ -104,7 +106,7 @@ def main(args):
     # Set checkpoint if resuming a training session
     if args.checkpoint:
         checkpoint = ckpt_dir.joinpath(args.checkpoint)
-    elif args.restart:
+    elif args.resume:
         checkpoint = sorted(list(ckpt_dir.glob("*.ckpt")))[-1]
     else:
         checkpoint = None
