@@ -28,6 +28,7 @@ class PayneEmulator:
         self.labels = model.labels
         self.stellar_labels_min = ensure_tensor(list(model.x_min.values()))
         self.stellar_labels_max = ensure_tensor(list(model.x_max.values()))
+        self.n_stellar_labels = self.model.input_dim
 
         self.model_res = model_res
         self.rv_scale = rv_scale
