@@ -5,9 +5,30 @@ import numpy as np
 import pandas as pd
 import h5py
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, Subset #, random_split
 from torchvision import transforms
 import pytorch_lightning as pl
+
+
+def random_split(dataset, lengths, generator=torch.default_generator):
+    r"""
+    Randomly split a dataset into non-overlapping new datasets of given lengths.
+    Optionally fix the generator for reproducible results, e.g.:
+
+    >>> random_split(range(10), [3, 7], generator=torch.Generator().manual_seed(42))
+
+    Args:
+        dataset (Dataset): Dataset to be split
+        lengths (sequence): lengths of splits to be produced
+        generator (Generator): Generator used for the random permutation.
+    """
+    # Cannot verify that dataset is Sized
+    if sum(lengths) != len(dataset):  # type: ignore
+        raise ValueError("Sum of input lengths does not equal the length of the input dataset!")
+
+    indices = torch.randperm(sum(lengths), generator=generator).tolist()
+    return [Subset(dataset, torch.tensor(indices[offset - length : offset]))
+            for offset, length in zip(torch._utils._accumulate(lengths), lengths)]
 
 
 class SelectLabels:
@@ -74,6 +95,7 @@ class SpectraHDF5Dataset(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
+
         # Load Stellar Parameters
         x = self.labels[idx]
         if self.x_transform:
@@ -225,8 +247,14 @@ class PayneDataModule(pl.LightningDataModule):
             self.wavelength = dataset.wavelength[()]
 
     def train_dataloader(self):
+        sampler = torch.utils.data.sampler.BatchSampler(
+            torch.utils.data.sampler.RandomSampler(self.training_dataset),
+            batch_size=self.batchsize,
+            drop_last=False
+        )
         return DataLoader(
             self.training_dataset,
+            sampler=sampler,
             batch_size=self.batchsize,
             shuffle=True,
             num_workers=self.num_workers,
@@ -234,8 +262,14 @@ class PayneDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
+        sampler = torch.utils.data.sampler.BatchSampler(
+            torch.utils.data.sampler.RandomSampler(self.validation_dataset),
+            batch_size=self.batchsize,
+            drop_last=False
+        )
         return DataLoader(
             self.validation_dataset,
+            sampler=sampler,
             batch_size=self.batchsize,
             shuffle=False,
             num_workers=self.num_workers,
