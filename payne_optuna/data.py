@@ -153,8 +153,8 @@ class SpectraHDF5Dataset(Dataset):
         offset = 0
         for i in range(n_datasets):
             length = n_spec_list[i]
-            virtual_layout_spectra[offset: offset + length, :h5py.h5s.UNLIMITED] = sources_spectra[i]
-            virtual_layout_labels[offset: offset + length, :h5py.h5s.UNLIMITED] = sources_labels[i]
+            virtual_layout_spectra[offset: offset + length] = sources_spectra[i]
+            virtual_layout_labels[offset: offset + length] = sources_labels[i]
             offset += length
         virtual_layout_wavelength[:] = vsource_wavelength
         with h5py.File(self.virtual_dataset, 'w', libver='latest') as f:
