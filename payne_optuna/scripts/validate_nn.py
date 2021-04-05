@@ -58,7 +58,7 @@ def main(args):
 
     # Set Tensor Type
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    torch.set_default_tensor_type(dtype)
+    #torch.set_default_tensor_type(dtype)
 
     # Load Configs & Set Paths
     with open(args.config_file) as file:
