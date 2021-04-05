@@ -70,7 +70,7 @@ def main(args):
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
     ckpt_dir = model_dir.joinpath("ckpts")
-    ckpt_file = sorted(list(ckpt_dir.glob('*.ckpt')))#[-1] #need to comment out for some reason
+    ckpt_file = sorted(list(ckpt_dir.glob('*.ckpt')))[-1] #need to comment out for some reason
     results_file = model_dir.joinpath('validation_results.npz')
     figure_file = model_dir.joinpath('validation_results.png')
 
