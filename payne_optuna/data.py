@@ -93,9 +93,11 @@ class SpectraHDF5Dataset(Dataset):
         self.scale_labels(iron_scale=iron_scale)
 
     def __getitem__(self, idx):
+        if not hasattr(self, 'spectra'):
+            self.load_virtual_dataset()
         if torch.is_tensor(idx):
             idx = idx.tolist()
-
+        idx.sort()
         # Load Stellar Parameters
         x = self.labels[idx]
         if self.x_transform:
