@@ -5,30 +5,30 @@ import numpy as np
 import pandas as pd
 import h5py
 import torch
-from torch.utils.data import Dataset, DataLoader, Subset #, random_split
+from torch.utils.data import Dataset, DataLoader, Subset, random_split
 from torchvision import transforms
 import pytorch_lightning as pl
 
 
-def random_split(dataset, lengths, generator=torch.default_generator):
-    r"""
-    Randomly split a dataset into non-overlapping new datasets of given lengths.
-    Optionally fix the generator for reproducible results, e.g.:
-
-    >>> random_split(range(10), [3, 7], generator=torch.Generator().manual_seed(42))
-
-    Args:
-        dataset (Dataset): Dataset to be split
-        lengths (sequence): lengths of splits to be produced
-        generator (Generator): Generator used for the random permutation.
-    """
-    # Cannot verify that dataset is Sized
-    if sum(lengths) != len(dataset):  # type: ignore
-        raise ValueError("Sum of input lengths does not equal the length of the input dataset!")
-
-    indices = torch.randperm(sum(lengths), generator=generator).tolist()
-    return [Subset(dataset, torch.tensor(indices[offset - length : offset]))
-            for offset, length in zip(torch._utils._accumulate(lengths), lengths)]
+#def random_split(dataset, lengths, generator=torch.default_generator):
+#    r"""
+#    Randomly split a dataset into non-overlapping new datasets of given lengths.
+#    Optionally fix the generator for reproducible results, e.g.:
+#
+#    >>> random_split(range(10), [3, 7], generator=torch.Generator().manual_seed(42))
+#
+#    Args:
+#        dataset (Dataset): Dataset to be split
+#        lengths (sequence): lengths of splits to be produced
+#        generator (Generator): Generator used for the random permutation.
+#    """
+#    # Cannot verify that dataset is Sized
+#    if sum(lengths) != len(dataset):  # type: ignore
+#        raise ValueError("Sum of input lengths does not equal the length of the input dataset!")
+#
+#    indices = torch.randperm(sum(lengths), generator=generator).tolist()
+#    return [Subset(dataset, torch.tensor(indices[offset - length : offset]))
+#            for offset, length in zip(torch._utils._accumulate(lengths), lengths)]
 
 
 class SelectLabels:
@@ -76,6 +76,7 @@ class SpectraHDF5Dataset(Dataset):
         self.dtype = dtype
         self.x_transform = x_transform
         self.y_transform = y_transform
+        self.virtual_dataset = Path(data_file_path).joinpath('virtual_dataset.h5')
 
         # Make & Load Virtual Dataset
         if not isinstance(data_file_path, Path):
@@ -86,6 +87,8 @@ class SpectraHDF5Dataset(Dataset):
             data_files = [data_file_path]
         else:
             data_files = sorted(data_file_path.glob('*.h5'))
+        if self.virtual_dataset in data_files:
+            data_files.remove(self.virtual_dataset)
         if len(data_files) < 1:
             raise RuntimeError('No hdf5 datasets found')
         self.make_virtual_dataset(data_files)
@@ -113,8 +116,7 @@ class SpectraHDF5Dataset(Dataset):
     def __len__(self):
         return self.n_spec
 
-    def make_virtual_dataset(self, files, virtual_dataset_dir='.'):
-        self.virtual_dataset = Path(virtual_dataset_dir).joinpath("virtual_dataset.h5")
+    def make_virtual_dataset(self, files):
         sources_spectra = []
         sources_labels = []
         n_spec_list = []
