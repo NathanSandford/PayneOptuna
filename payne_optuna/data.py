@@ -252,13 +252,12 @@ class PayneDataModule(pl.LightningDataModule):
         sampler = torch.utils.data.sampler.BatchSampler(
             torch.utils.data.sampler.RandomSampler(self.training_dataset),
             batch_size=self.batchsize,
-            drop_last=False
+            drop_last=True
         )
         return DataLoader(
             self.training_dataset,
             sampler=sampler,
             batch_size=self.batchsize,
-            shuffle=True,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
         )
@@ -267,13 +266,12 @@ class PayneDataModule(pl.LightningDataModule):
         sampler = torch.utils.data.sampler.BatchSampler(
             torch.utils.data.sampler.RandomSampler(self.validation_dataset),
             batch_size=self.batchsize,
-            drop_last=False
+            drop_last=True
         )
         return DataLoader(
             self.validation_dataset,
             sampler=sampler,
             batch_size=self.batchsize,
-            shuffle=False,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
         )
