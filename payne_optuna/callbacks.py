@@ -73,7 +73,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             self._update_best_and_save(
                 current, epoch, step, trainer, pl_module, metrics
             )
-        elif self.verbose:
+        if self.verbose:
             trial_txt = (
                 f"Trial {self.trial_number:d}, "
                 if self.trial_number is not None
