@@ -100,7 +100,7 @@ class SpectraHDF5Dataset(Dataset):
             self.load_virtual_dataset()
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        idx.sort()
+        #idx.sort()
         # Load Stellar Parameters
         x = self.labels[idx]
         if self.x_transform:
