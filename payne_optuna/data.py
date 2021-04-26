@@ -251,28 +251,30 @@ class PayneDataModule(pl.LightningDataModule):
             self.wavelength = dataset.wavelength[()]
 
     def train_dataloader(self):
-        sampler = torch.utils.data.sampler.BatchSampler(
-            torch.utils.data.sampler.RandomSampler(self.training_dataset),
-            batch_size=self.batchsize,
-            drop_last=True
-        )
+        #sampler = torch.utils.data.sampler.BatchSampler(
+        #    torch.utils.data.sampler.RandomSampler(self.training_dataset),
+        #    batch_size=self.batchsize,
+        #    drop_last=True
+        #)
         return DataLoader(
             self.training_dataset,
-            sampler=sampler,
+        #    sampler=sampler,
+            shuffle=True,
             batch_size=self.batchsize,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
         )
 
     def val_dataloader(self):
-        sampler = torch.utils.data.sampler.BatchSampler(
-            torch.utils.data.sampler.RandomSampler(self.validation_dataset),
-            batch_size=self.batchsize,
-            drop_last=True
-        )
+        #sampler = torch.utils.data.sampler.BatchSampler(
+        #    torch.utils.data.sampler.RandomSampler(self.validation_dataset),
+        #    batch_size=self.batchsize,
+        #    drop_last=True
+        #)
         return DataLoader(
             self.validation_dataset,
-            sampler=sampler,
+        #    sampler=sampler,
+            shuffle=False,
             batch_size=self.batchsize,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
