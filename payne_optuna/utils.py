@@ -1,6 +1,11 @@
 import numpy as np
 import torch
 
+import aesara
+from aesara.graph.op import Op
+from aesara.graph.basic import Apply
+import aesara.tensor as aet
+aesara.config.floatX = 'float32'
 
 def ensure_tensor(input_, precision=torch.float32):
     if isinstance(input_, torch.Tensor):
@@ -52,3 +57,46 @@ def log_lambda_grid(dv, min_wave, max_wave):
     log_dv = (log_max_wave - log_min_wave) / (n_pixels - 1)
     wave = 10 ** (log_min_wave + log_dv * np.arange(n_pixels))
     return wave
+
+
+class TorchOp(Op):
+    def __init__(self, module, params, args=None):
+        self.module = module
+        self.params = list(params)
+        if args is None:
+            self.args = tuple()
+        else:
+            self.args = tuple(args)
+
+    def make_node(self, *args):
+        if len(args) != len(self.params):
+            raise ValueError("dimension mismatch")
+        args = [aet.as_tensor_variable(a) for a in args]
+        return Apply(self, args, [aet.dscalar().type()] + [a.type() for a in args])
+
+    def infer_shape(self, fraph, node, shapes):
+        return tuple([()] + list(shapes))
+
+    def perform(self, node, inputs, outputs):
+        for p, value in zip(self.params, inputs):
+            p.data = torch.tensor(value)
+            if p.grad is not None:
+                p.grad.detach_()
+                p.grad.zero_()
+
+        result = self.module(*self.args)
+        result.backward()
+
+        outputs[0][0] = result.detach().numpy()
+        for i, p in enumerate(self.params):
+            outputs[i + 1][0] = p.grad.numpy()
+
+    def grad(self, inputs, gradients):
+        for i, g in enumerate(gradients[1:]):
+            if not isinstance(g.type, aesara.gradient.DisconnectedType):
+                raise ValueError(
+                    "can't propagate gradients wrt parameter {0}".format(i + 1)
+                )
+        return [gradients[0] * d for d in self(*inputs)[1:]]
+
+
