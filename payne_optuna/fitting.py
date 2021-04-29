@@ -5,6 +5,7 @@ from scipy.ndimage import percentile_filter
 import torch
 from .utils import ensure_tensor, j_nu, interp
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 
 def mse_loss(pred, target, pred_errs, target_errs):
@@ -560,13 +561,11 @@ class PayneOptimizer:
         self.learning_rate_decay_ts = learning_rate_decay_ts
         self.tolerances = tolerances
 
-        self.n_stellar_labels = self.emulator.model.input_dim
+        self.n_stellar_labels = self.emulator.n_stellar_labels
 
         self.cont_deg = self.emulator.cont_deg
         self.n_cont_coeffs = self.cont_deg + 1
         self.cont_wave_norm_range = self.emulator.cont_wave_norm_range
-        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
-        self.c_flat[0] = 1.0
 
     def prefit_rv(
             self,
@@ -689,6 +688,7 @@ class PayneOptimizer:
             vsini=None,
             max_epochs=1000,
             prefit=None,
+            prefit_cont_window=55,
             verbose=False,
             plot_prefits=False,
             plot_fit_every=None,
@@ -707,8 +707,12 @@ class PayneOptimizer:
         self.inst_res = inst_res
         self.vsini = vsini
 
+        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        self.c_flat[0] = 1.0
+
         # Initialize Starting Values
         self.prefit = prefit if prefit is not None else []
+        self.prefit_cont_window = prefit_cont_window
         self.init_starting_labels(verbose=verbose, plot=plot_prefits)
 
         # Initialize Optimizer & Learning Rate Scheduler
