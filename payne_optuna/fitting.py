@@ -676,7 +676,7 @@ class PayneOptimizer:
             inst_res=self.inst_res,
             vsini=self.vsini,
         )
-        return mod_flux, mod_errs
+        return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
 
     def fit(
             self,
