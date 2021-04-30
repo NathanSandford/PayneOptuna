@@ -394,7 +394,7 @@ def main(args):
                 print(f'[{label}/H]\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
             else:
                 print(f'{label}\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
-        print(f'RV\t = {optimizer.rv:.2f} ({payne.rv_scale.item()} km/s)')
+        print(f'RV\t = {optimizer.rv.item():.2f} ({payne.rv_scale} km/s)')
         print(f'vmacro\t = {optimizer.vmacro.item():.2f} (km/s)')
         
         # Save Labels & Fits
