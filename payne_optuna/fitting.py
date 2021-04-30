@@ -465,6 +465,16 @@ class CompositePayneEmulator(torch.nn.Module):
             conv_errs = None
         return conv_spec, conv_errs
 
+    def scale_stellar_labels(self, unscaled_labels):
+        x_min = np.array(list(self.models[0].x_min.values()))
+        x_max = np.array(list(self.models[0].x_min.values()))
+        return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
+
+    def unscale_stellar_label(self, scaled_labels):
+        x_min = np.array(list(self.models[0].x_min.values()))
+        x_max = np.array(list(self.models[0].x_min.values()))
+        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
+
     def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None , vsini=None):
         flux_list = []
         errs_list = []
@@ -820,8 +830,10 @@ class PayneOptimizer:
                 self.vmacro.clamp_(min=1e-3, max=15.0)
                 self.stellar_labels.clamp_(min=-0.55, max=0.55)
                 #self.vsini.clamp_(min=0.0)
-                #if self.emulator.mod_res is not None:
-                #    self.inst_res.clamp_(min=100, max=self.emulator.mod_res)
+                #self.inst_res.clamp_(
+                #    min=100,
+                #    max=self.emulator.mod_res if self.emulator.mod_res is not None else np.inf
+                #)
 
             # Check Convergence
             delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
