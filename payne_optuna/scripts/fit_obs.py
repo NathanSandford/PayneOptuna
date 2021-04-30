@@ -35,8 +35,6 @@ def parse_args(options=None):
         args = parser.parse_args()
     else:
         args = parser.parse_args(options)
-    if args.checkpoint and args.resume:
-        args.error("Cannot use both --resume and --checkpoint.")
     return args
 
 
