@@ -29,8 +29,8 @@ def parse_args(options=None):
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum")
     parser.add_argument("config_dir", help="Directory containing model config files")
     parser.add_argument("data_dir", help="Directory containing data files")
-    parser.add_argument("orders", '-o', help="Orders to fit. List or 'all'.")
-    parser.add_argument("plot", '-p', action='store_true', default=False, help="Plot QA")
+    parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
+    parser.add_argument('-p', "--plot", action='store_true', default=False, help="Plot QA")
     if options is None:
         args = parser.parse_args()
     else:
