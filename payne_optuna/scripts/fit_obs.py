@@ -314,57 +314,60 @@ def main(args):
     models = []
     for config_file in config_files:
         models.append(load_model(config_file))
-    # Determine Model Breaks
-    model_bounds = find_model_breaks(models, obs)
-    print('Model bounds determined to be:')
-    [print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
-    # Initialize Emulator
-    payne = CompositePayneEmulator(
-        models=models,
-        model_bounds=model_bounds,
-        cont_deg=6,
-        cont_wave_norm_range=(-10, 10),
-        obs_wave=obs['wave'],
-        include_model_errs=True,
-        model_res=86600,
-        vmacro_method='iso',
-    )
-
-    # Initialize Optimizer
-    optimizer = PayneOptimizer(
-        emulator=payne,
-        loss_fn=mse_loss,
-        learning_rates=dict(
-            stellar_labels=1e-1,
-            vmacro=1e-1,
-            rv=1e-2,
-            cont_coeffs=1e-1,
-        ),
-        learning_rate_decay=dict(
-            stellar_labels=0.99,
-            vmacro=0.99,
-            rv=0.9,
-            cont_coeffs=0.99,
-        ),
-        learning_rate_decay_ts=dict(
-            stellar_labels=10,
-            vmacro=10,
-            rv=10,
-            cont_coeffs=10,
-        ),
-        tolerances=dict(
-            d_stellar_labels=1e-5,
-            d_vmacro=1e-4,
-            d_rv=1e-4,
-            d_cont=5e-2,
-            d_loss=-np.inf,
-            loss=-np.inf,
-        ),
-    )
 
     # Perform Fit
     for name, obs in all_obs.items():
         print(f'Beginning Fit for {name}')
+
+        # Determine Model Breaks
+        model_bounds = find_model_breaks(models, obs)
+        print('Model bounds determined to be:')
+        [print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
+
+        # Initialize Emulator
+        payne = CompositePayneEmulator(
+            models=models,
+            model_bounds=model_bounds,
+            cont_deg=6,
+            cont_wave_norm_range=(-10, 10),
+            obs_wave=obs['wave'],
+            include_model_errs=True,
+            model_res=86600,
+            vmacro_method='iso',
+        )
+
+        # Initialize Optimizer
+        optimizer = PayneOptimizer(
+            emulator=payne,
+            loss_fn=mse_loss,
+            learning_rates=dict(
+                stellar_labels=1e-1,
+                vmacro=1e-1,
+                rv=1e-2,
+                cont_coeffs=1e-1,
+            ),
+            learning_rate_decay=dict(
+                stellar_labels=0.99,
+                vmacro=0.99,
+                rv=0.9,
+                cont_coeffs=0.99,
+            ),
+            learning_rate_decay_ts=dict(
+                stellar_labels=10,
+                vmacro=10,
+                rv=10,
+                cont_coeffs=10,
+            ),
+            tolerances=dict(
+                d_stellar_labels=1e-5,
+                d_vmacro=1e-4,
+                d_rv=1e-4,
+                d_cont=5e-2,
+                d_loss=-np.inf,
+                loss=-np.inf,
+            ),
+        )
+
         optimizer.fit(
             obs_flux=obs['spec'],
             obs_errs=obs['errs'],
