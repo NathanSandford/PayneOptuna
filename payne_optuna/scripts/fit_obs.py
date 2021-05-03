@@ -374,7 +374,7 @@ def main(args):
             obs_wave=obs['wave'],
             obs_blaz=obs['scaled_blaz'],
             inst_res=None,
-            max_epochs=5000,
+            max_epochs=10000,
             prefit=['cont', 'rv'],
             prefit_cont_window=55,
             verbose=True,
