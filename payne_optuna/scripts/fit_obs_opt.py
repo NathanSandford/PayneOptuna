@@ -38,7 +38,7 @@ def parse_args(options=None):
     return args
 
 
-class MasterFlats():
+class MasterFlats:
     def __init__(self, file):
         with fits.open(file) as hdul:
             self.pixelflat_model = hdul['PIXELFLAT_MODEL'].data
@@ -386,10 +386,10 @@ def main(args):
         unscaled_stellar_labels = payne.unscale_stellar_labels(optimizer.stellar_labels)
         
         print('Best Fit Labels:')
-        for i, label in enumerate(payne.models[0].labels):
+        for i, label in enumerate(payne.labels):
             if label not in ['Teff', 'logg', 'v_micro', 'Fe']:
                 print(
-                    f'[{label}/Fe]\t = {unscaled_stellar_labels[0, i] - unscaled_stellar_labels[0, payne.models[0].labels.index("Fe")]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
+                    f'[{label}/Fe]\t = {unscaled_stellar_labels[0, i] - unscaled_stellar_labels[0, payne.labels.index("Fe")]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
             elif label == 'Fe':
                 print(f'[{label}/H]\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
             else:

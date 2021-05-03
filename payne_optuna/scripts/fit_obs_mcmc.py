@@ -485,7 +485,7 @@ def main(args):
     index = 0
     autocorr = np.empty(max_steps)
     old_tau = np.inf
-    for sample in sampler.sample(p0, iterations=max_steps, progress=True):
+    for _ in sampler.sample(p0, iterations=max_steps, progress=True):
         if sampler.iteration // 100 == 0.0:
             tau = sampler.get_autocorr_time(tol=0)
             autocorr[index] = np.mean(tau)
@@ -544,5 +544,5 @@ def main(args):
         axes[-1].set_xlabel("step number")
         plt.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_chains.png"))
 
-        fig = corner(flat_samples, labels=payne.labels);
+        fig = corner(flat_samples, labels=payne.labels)
         fig.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_corner.png"))
