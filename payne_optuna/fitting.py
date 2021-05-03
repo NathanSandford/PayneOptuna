@@ -339,15 +339,6 @@ class CompositePayneEmulator(torch.nn.Module):
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
-    def scale_labels(self, labels):
-        scaled_labels = (labels - self.stellar_labels_min) / (self.stellar_labels_max - self.stellar_labels_min) - 0.5
-        return scaled_labels
-
-    def rescale_labels(self, scaled_labels):
-        rescaled_labels = (scaled_labels + 0.5) * (
-                    self.stellar_labels_max - self.stellar_labels_min) + self.stellar_labels_min
-        return rescaled_labels
-
     def scale_wave(self, wave):
         old_len = wave[:, -1] - wave[:, 0]
         new_len = self.cont_wave_norm_range[1] - self.cont_wave_norm_range[0]
@@ -785,7 +776,6 @@ class PayneOptimizer:
                 (epoch < max_epochs)
                 and (
                         (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
-                        # or (delta_cont_coeffs.abs().max() > self.tolerances['d_cont_coeffs'])
                         or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
                         or (delta_vmacro.abs() > self.tolerances['d_vmacro'])
                         or (delta_rv.abs() > self.tolerances['d_rv'])
