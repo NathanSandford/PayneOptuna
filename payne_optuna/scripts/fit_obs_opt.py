@@ -319,7 +319,7 @@ def main(args):
                 inst_res=ensure_tensor(args.resolution),
                 model_res=ensure_tensor(86600),
             )
-            conv_obs_mask = (conv_obs_mask > 0.999)
+            conv_obs_mask = (conv_obs_mask > 0.9999)
             conv_obs_errs[~conv_obs_mask] = np.inf
             obs['conv_spec'] = conv_obs_flux
             obs['conv_errs'] = conv_obs_errs
