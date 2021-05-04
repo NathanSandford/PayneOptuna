@@ -436,6 +436,11 @@ def main(args):
             f"Could not load optimizer solutions ({args.obs_name}_fit.npz)."
         )
 
+    # Convert Obs Spectrum to Tensor
+    obs['norm_spec'] = ensure_tensor(obs['norm_spec'])
+    obs['norm_errs'] = ensure_tensor(obs['norm_errs'])
+    obs['mask'] = ensure_tensor(obs['mask'], precision=bool)
+
     # Define Log Probability
     def log_probability(theta, model, obs):
         stellar_labels = theta
