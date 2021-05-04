@@ -383,11 +383,11 @@ class CompositePayneEmulator(torch.nn.Module):
             y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
             y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
         else:
-            y_lo = y_[:, lo]
-            y_hi = y_[:, hi]
+            y_lo = y_[..., lo]
+            y_hi = y_[..., hi]
         slope = (y_hi - y_lo) / (x_hi - x_lo)
         y_new = slope * (x_new - x_lo) + y_lo
-        y_new[:, out_of_bounds] = fill
+        y_new[..., out_of_bounds] = fill
         return y_new
 
     @staticmethod
