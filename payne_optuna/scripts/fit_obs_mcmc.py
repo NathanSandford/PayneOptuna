@@ -454,9 +454,7 @@ def main(args):
                 pred_errs=mod_errs,
                 target_errs=obs["norm_errs"],
                 mask=obs["mask"],
-            )
-            .detach()
-            .numpy()
+            ).detach().numpy()
         )
         log_priors = uniform_log_prior(stellar_labels, -0.55, 0.55)
         return log_like + log_priors
@@ -482,7 +480,7 @@ def main(args):
         backend=backend,
     )
 
-    #
+    # Sample Until Convergence is Reached
     max_steps = int(1e5)
     index = 0
     autocorr = np.empty(max_steps)
@@ -495,7 +493,7 @@ def main(args):
         print(
             f"{args.obs_name} Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " +
             f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " +
-            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau):.2f}"
+            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau):.3f}"
         )
         index += 1
 
