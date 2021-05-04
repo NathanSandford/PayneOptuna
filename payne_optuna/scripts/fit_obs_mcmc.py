@@ -488,22 +488,23 @@ def main(args):
     autocorr = np.empty(max_steps)
     old_tau = np.inf
     for _ in sampler.sample(p0, iterations=max_steps, progress=True):
-        if sampler.iteration // 100 == 0.0:
-            tau = sampler.get_autocorr_time(tol=0)
-            autocorr[index] = np.mean(tau)
-            print(
-                f"Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " + \
-                f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " + \
-                f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau)}"
-            )
-            index += 1
+        if sampler.iteration % 500:
+            continue
+        tau = sampler.get_autocorr_time(tol=0)
+        autocorr[index] = np.mean(tau)
+        print(
+            f"Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " + \
+            f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " + \
+            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau)}"
+        )
+        index += 1
 
-            # Check convergence
-            converged = np.all(tau * 100 < sampler.iteration)
-            converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
-            old_tau = tau
-            if converged:
-                break
+        # Check convergence
+        converged = np.all(tau * 100 < sampler.iteration)
+        converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
+        old_tau = tau
+        if converged:
+            break
 
     samples = sampler.get_chain()
     flat_samples = sampler.get_chain(
