@@ -379,7 +379,7 @@ class CompositePayneEmulator(torch.nn.Module):
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        if y_.shape[0] == lo.shape[0] == hi.shape[0]:
+        if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
             # Separate interpolation for each spectrum
             y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
             y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
