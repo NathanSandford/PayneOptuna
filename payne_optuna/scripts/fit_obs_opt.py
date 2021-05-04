@@ -309,14 +309,14 @@ def main(args):
                 wave=ensure_tensor(obs['wave'], precision=torch.float64),
                 flux=ensure_tensor(obs['spec']),
                 errs=ensure_tensor(obs['raw_errs']),
-                inst_res=ensure_tensor(args.resolution),
+                inst_res=ensure_tensor(int(args.resolution)),
                 model_res=ensure_tensor(86600),
             )
             conv_obs_mask, _ = payne.inst_broaden(
                 wave=ensure_tensor(all_obs[name]['wave'], precision=torch.float64),
                 flux=ensure_tensor(all_obs[name]['mask']),
                 errs=ensure_tensor(all_obs[name]['raw_errs']),
-                inst_res=ensure_tensor(args.resolution),
+                inst_res=ensure_tensor(int(args.resolution)),
                 model_res=ensure_tensor(86600),
             )
             conv_obs_mask = (conv_obs_mask > 0.9999)
@@ -402,7 +402,7 @@ def main(args):
             obs_errs=obs['errs'] if args.resolution == "default" else obs['conv_errs'],
             obs_wave=obs['wave'],
             obs_blaz=obs['scaled_blaz'],
-            inst_res=None if args.resolution == "default" else args.resolution,
+            inst_res=None if args.resolution == "default" else int(args.resolution),
             max_epochs=10000,
             prefit=['cont', 'rv'],
             prefit_cont_window=55,
