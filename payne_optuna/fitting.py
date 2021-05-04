@@ -370,7 +370,7 @@ class CompositePayneEmulator(torch.nn.Module):
     #    return y_new
 
     @staticmethod
-    def interp(x, y, x_new, fill, one_to_one=False):
+    def interp(x, y, x_new, fill):
         y_ = y.unsqueeze(0) if y.ndim == 1 else y
         out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
         x_new_indices = torch.searchsorted(x, x_new)
@@ -379,7 +379,8 @@ class CompositePayneEmulator(torch.nn.Module):
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        if one_to_one:
+        if y_.shape[0] == lo.shape[0] == hi.shape[0]:
+            # Separate interpolation for each spectrum
             y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
             y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
         else:
