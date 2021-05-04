@@ -352,8 +352,25 @@ class CompositePayneEmulator(torch.nn.Module):
         cont_flux = torch.einsum('ij, ijk -> jk', coeffs, wave_)
         return cont_flux
 
+    #@staticmethod
+    #def interp(x, y, x_new, fill):
+    #    y_ = y.unsqueeze(0) if y.ndim == 1 else y
+    #    out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
+    #    x_new_indices = torch.searchsorted(x, x_new)
+    #    x_new_indices = x_new_indices.clamp(1, x.shape[0] - 1)
+    #    lo = x_new_indices - 1
+    #    hi = x_new_indices
+    #    x_lo = x[lo]
+    #    x_hi = x[hi]
+    #    y_lo = y_[:, lo]
+    #    y_hi = y_[:, hi]
+    #    slope = (y_hi - y_lo) / (x_hi - x_lo)
+    #    y_new = slope * (x_new - x_lo) + y_lo
+    #    y_new[:, out_of_bounds] = fill
+    #    return y_new
+
     @staticmethod
-    def interp(x, y, x_new, fill):
+    def interp(x, y, x_new, fill, one_to_one=False):
         y_ = y.unsqueeze(0) if y.ndim == 1 else y
         out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
         x_new_indices = torch.searchsorted(x, x_new)
@@ -362,8 +379,12 @@ class CompositePayneEmulator(torch.nn.Module):
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        y_lo = y_[:, lo]
-        y_hi = y_[:, hi]
+        if one_to_one:
+            y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
+            y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
+        else:
+            y_lo = y_[:, lo]
+            y_hi = y_[:, hi]
         slope = (y_hi - y_lo) / (x_hi - x_lo)
         y_new = slope * (x_new - x_lo) + y_lo
         y_new[:, out_of_bounds] = fill
@@ -418,9 +439,9 @@ class CompositePayneEmulator(torch.nn.Module):
         c = torch.tensor([2.99792458e5])  # km/s
         doppler_factor = torch.sqrt((1 - rv / c) / (1 + rv / c))
         new_wave = wave.unsqueeze(0) * doppler_factor.unsqueeze(-1)
-        shifted_flux = self.interp(wave, flux, new_wave, fill=1.0).squeeze()
+        shifted_flux = self.interp(wave, flux, new_wave, fill=1.0, one_to_one=True).squeeze()
         if errs is not None:
-            shifted_errs = self.interp(wave, errs, new_wave, fill=np.inf).squeeze()
+            shifted_errs = self.interp(wave, errs, new_wave, fill=np.inf, one_to_one=True).squeeze()
         else:
             shifted_errs = None
         return shifted_flux, shifted_errs
@@ -518,6 +539,7 @@ class CompositePayneEmulator(torch.nn.Module):
             y=flux,
             x_new=self.obs_wave,
             fill=1.0,
+            one_to_one=False,
         )
         if self.include_model_errs:
             intp_errs = self.interp(
@@ -525,6 +547,7 @@ class CompositePayneEmulator(torch.nn.Module):
                 y=errs,
                 x_new=self.obs_wave,
                 fill=np.inf,
+                one_to_one=False,
             )
         else:
             intp_errs = None
