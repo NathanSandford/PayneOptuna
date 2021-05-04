@@ -90,7 +90,7 @@ def main(args):
 
     # Initialize DataModule
     datamodule = PayneDataModule(
-        input_file=input_dir,
+        input_dir=input_dir,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
         batchsize=configs["training"]["batchsize"],
