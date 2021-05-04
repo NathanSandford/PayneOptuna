@@ -495,7 +495,7 @@ def main(args):
         print(
             f"{args.obs_name} Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " +
             f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " +
-            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau)}"
+            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau):.2f}"
         )
         index += 1
 
