@@ -93,6 +93,7 @@ def main(args):
         input_dir=input_dir,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
+        iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
