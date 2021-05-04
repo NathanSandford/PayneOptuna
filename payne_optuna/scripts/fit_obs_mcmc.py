@@ -223,26 +223,6 @@ def find_model_breaks(models, obs):
     return model_bounds
 
 
-def gaussian_loglike(pred, target, pred_errs, target_errs, mask):
-    tot_vars = pred_errs ** 2 + target_errs ** 2
-    loglike = -0.5 * (
-        torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
-    )
-    return torch.sum(loglike[..., mask], axis=[-1, -2])  # .detach().numpy()
-
-
-def gaussian_log_prior(x, mu, sigma):
-    return np.sum(
-        np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2
-    )
-
-
-def uniform_log_prior(theta, theta_min, theta_max):
-    log_prior = np.zeros(theta.shape[0])
-    log_prior[np.any((theta < theta_min) | (theta > theta_max), axis=-1)] = -np.inf
-    return log_prior
-
-
 def main(args):
     # Set Tensor Type
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
@@ -441,6 +421,23 @@ def main(args):
     obs['norm_errs'] = ensure_tensor(obs['norm_errs'])
     obs['mask'] = ensure_tensor(obs['mask'], precision=bool)
 
+    def gaussian_log_likelihood(pred, target, pred_errs, target_errs, mask):
+        tot_vars = pred_errs ** 2 + target_errs ** 2
+        loglike = -0.5 * (
+                torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
+        )
+        return torch.sum(loglike[..., mask], axis=-1)  # .detach().numpy()
+
+    def gaussian_log_prior(x, mu, sigma):
+        return np.sum(
+            np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2
+        )
+
+    def uniform_log_prior(theta, theta_min, theta_max):
+        log_prior = np.zeros(theta.shape[0])
+        log_prior[np.any((theta < theta_min) | (theta > theta_max), axis=-1)] = -np.inf
+        return log_prior
+
     # Define Log Probability
     def log_probability(theta, model, obs):
         stellar_labels = theta
@@ -451,7 +448,7 @@ def main(args):
             cont_coeffs=ensure_tensor(optim_fit["cont_coeffs"]),
         )
         log_like = (
-            gaussian_loglike(
+            gaussian_log_likelihood(
                 pred=mod_spec,
                 target=obs["norm_spec"],
                 pred_errs=mod_errs,
@@ -495,9 +492,9 @@ def main(args):
             tau = sampler.get_autocorr_time(tol=0)
             autocorr[index] = np.mean(tau)
             print(
-                f"Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, ' + \
-                f't/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, ' + \
-                f'|dTau/Tau| = {np.abs(old_tau - tau) / tau}"
+                f"Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " + \
+                f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " + \
+                f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau)}"
             )
             index += 1
 
