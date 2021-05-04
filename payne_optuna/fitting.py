@@ -458,12 +458,12 @@ class CompositePayneEmulator(torch.nn.Module):
 
     def scale_stellar_labels(self, unscaled_labels):
         x_min = np.array(list(self.models[0].x_min.values()))
-        x_max = np.array(list(self.models[0].x_min.values()))
+        x_max = np.array(list(self.models[0].x_max.values()))
         return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
 
     def unscale_stellar_labels(self, scaled_labels):
         x_min = np.array(list(self.models[0].x_min.values()))
-        x_max = np.array(list(self.models[0].x_min.values()))
+        x_max = np.array(list(self.models[0].x_max.values()))
         return (scaled_labels + 0.5) * (x_max - x_min) + x_min
 
     def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None , vsini=None):
