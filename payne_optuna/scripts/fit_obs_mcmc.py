@@ -346,7 +346,7 @@ def main(args):
     )
     # Scale Spec by Blaze
     obs["norm_spec"] = obs["spec"] / obs["scaled_blaz"]
-    obs["norm_errs"] = obs["spec"] / obs["scaled_blaz"]
+    obs["norm_errs"] = obs["errs"] / obs["scaled_blaz"]
 
     # Plot Observed Spectrum & Blaze Function
     if args.plot:
