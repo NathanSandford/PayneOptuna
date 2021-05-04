@@ -16,6 +16,7 @@ from astropy.coordinates import UnitSphericalRepresentation, CartesianRepresenta
 import torch
 from payne_optuna.model import LightningPaynePerceptron
 from payne_optuna.fitting import CompositePayneEmulator, PayneOptimizer, mse_loss
+from payne_optuna.utils import ensure_tensor
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -30,6 +31,7 @@ def parse_args(options=None):
     parser.add_argument("config_dir", help="Directory containing model config files")
     parser.add_argument("data_dir", help="Directory containing data files")
     parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
+    parser.add_argument("-R", "--resolution", default='default', help="Resolution to convolve and fit to.")
     parser.add_argument('-p', "--plot", action='store_true', default=False, help="Plot QA")
     if options is None:
         args = parser.parse_args()
@@ -274,42 +276,6 @@ def main(args):
         # Save to Dictionary
         all_obs[obs_spec_file.stem[7:]] = obs
 
-    # Plot Observed Spectrum & Blaze Function
-    if args.plot:
-        for i, name_obs in enumerate(all_obs.items()):
-            name, obs = name_obs
-            n_ord = obs['ords'].shape[0]
-            fig = plt.figure(figsize=(10, n_ord))
-            gs = GridSpec(n_ord, 1)
-            gs.update(hspace=0.5)
-            for j, order in enumerate(obs['ords']):
-                ax = plt.subplot(gs[j, 0])
-                # print(name, order)
-                tellurics_in_order = tellurics[
-                    (
-                            (tellurics['wave_min'] > np.min(obs['wave'][j])) \
-                            & (tellurics['wave_min'] < np.max(obs['wave'][j]))
-                    ) \
-                    | (
-                            (tellurics['wave_max'] > np.min(obs['wave'][j])) \
-                            & (tellurics['wave_max'] < np.max(obs['wave'][j]))
-                    )
-                    ]
-                ax.plot(obs['wave'][j], obs['scaled_blaz'][j], alpha=0.8, c='r', label='Scaled Blaze')
-                ax.scatter(obs['wave'][j][obs['mask'][j]], obs['spec'][j][obs['mask'][j]], alpha=0.8, marker='.', s=1,
-                           c='k', label='Observed Spectrum')
-                if j == 0:
-                    ax.set_title(name)
-                    ax.legend(fontsize=8)
-                for line in tellurics_in_order.index:
-                    ax.axvspan(tellurics_in_order.loc[line, 'wave_min'], tellurics_in_order.loc[line, 'wave_max'],
-                               color='grey', alpha=0.5)
-                ax.set_ylim(0, 3 * np.mean(obs['spec'][j][obs['mask'][j]]))
-                ax.text(0.98, 0.70, f"Order: {int(order)}", transform=ax.transAxes, fontsize=6, verticalalignment='top',
-                        horizontalalignment='right',
-                        bbox=dict(facecolor='white', alpha=0.8))
-            plt.savefig(fig_dir.joinpath(f'{name}_obs.png'))
-
     # Load Models
     models = []
     for config_file in config_files:
@@ -317,7 +283,7 @@ def main(args):
 
     # Perform Fit
     for name, obs in all_obs.items():
-        print(f'Beginning Fit for {name}')
+        print(f'Beginning Analysis of {name}')
 
         # Determine Model Breaks
         model_bounds = find_model_breaks(models, obs)
@@ -335,6 +301,69 @@ def main(args):
             model_res=86600,
             vmacro_method='iso',
         )
+
+        # Convolve Observed Spectrum
+        if args.resolution != "default":
+            print(f'Convolving Observed Spectrum to R={args.resolution}')
+            conv_obs_flux, conv_obs_errs = payne.inst_broaden(
+                wave=ensure_tensor(obs['wave'], precision=torch.float64),
+                flux=ensure_tensor(obs['spec']),
+                errs=ensure_tensor(obs['raw_errs']),
+                inst_res=ensure_tensor(args.resolution),
+                model_res=ensure_tensor(86600),
+            )
+            conv_obs_mask, _ = payne.inst_broaden(
+                wave=ensure_tensor(all_obs[name]['wave'], precision=torch.float64),
+                flux=ensure_tensor(all_obs[name]['mask']),
+                errs=ensure_tensor(all_obs[name]['raw_errs']),
+                inst_res=ensure_tensor(args.resolution),
+                model_res=ensure_tensor(86600),
+            )
+            conv_obs_mask = (conv_obs_mask > 0.999)
+            conv_obs_errs[~conv_obs_mask] = np.inf
+            obs['conv_spec'] = conv_obs_flux
+            obs['conv_errs'] = conv_obs_errs
+            obs['conv_mask'] = conv_obs_mask
+
+        # Plot Observed Spectrum & Blaze Function
+        if args.plot:
+            n_ord = obs['ords'].shape[0]
+            fig = plt.figure(figsize=(10, n_ord))
+            gs = GridSpec(n_ord, 1)
+            gs.update(hspace=0.5)
+            for j, order in enumerate(obs['ords']):
+                ax = plt.subplot(gs[j, 0])
+                tellurics_in_order = tellurics[
+                    (
+                            (tellurics['wave_min'] > np.min(obs['wave'][j]))
+                            & (tellurics['wave_min'] < np.max(obs['wave'][j]))
+                    )
+                    | (
+                            (tellurics['wave_max'] > np.min(obs['wave'][j]))
+                            & (tellurics['wave_max'] < np.max(obs['wave'][j]))
+                    )
+                    ]
+                ax.plot(obs['wave'][j], obs['scaled_blaz'][j], alpha=0.8, c='r', label='Scaled Blaze')
+                ax.scatter(
+                    obs['wave'][j][obs['mask'][j]], obs['spec'][j][obs['mask'][j]],
+                    alpha=0.8, marker='.', s=1, c='k', label='Observed Spectrum'
+                )
+                if args.resolution != "default":
+                    ax.scatter(
+                        obs['wave'][j][obs['conv_mask'][j]], obs['conv_spec'][j][obs['conv_mask'][j]],
+                        alpha=0.8, marker='.', s=1, c='b', label='Convolved Spectrum'
+                    )
+                if j == 0:
+                    ax.set_title(name)
+                    ax.legend(fontsize=8)
+                for line in tellurics_in_order.index:
+                    ax.axvspan(tellurics_in_order.loc[line, 'wave_min'], tellurics_in_order.loc[line, 'wave_max'],
+                               color='grey', alpha=0.5)
+                ax.set_ylim(0, 3 * np.mean(obs['spec'][j][obs['mask'][j]]))
+                ax.text(0.98, 0.70, f"Order: {int(order)}", transform=ax.transAxes, fontsize=6, verticalalignment='top',
+                        horizontalalignment='right',
+                        bbox=dict(facecolor='white', alpha=0.8))
+            plt.savefig(fig_dir.joinpath(f'{name}_obs_{args.resolution}.png'))
 
         # Initialize Optimizer
         optimizer = PayneOptimizer(
@@ -369,11 +398,11 @@ def main(args):
         )
 
         optimizer.fit(
-            obs_flux=obs['spec'],
-            obs_errs=obs['errs'],
+            obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
+            obs_errs=obs['errs'] if args.resolution == "default" else obs['conv_errs'],
             obs_wave=obs['wave'],
             obs_blaz=obs['scaled_blaz'],
-            inst_res=None,
+            inst_res=None if args.resolution == "default" else args.resolution,
             max_epochs=10000,
             prefit=['cont', 'rv'],
             prefit_cont_window=55,
@@ -411,7 +440,7 @@ def main(args):
             'mod_errs': torch.clone(optimizer.best_model_errs).detach(),
         }
         np.savez(
-            fits_dir.joinpath(f'{name}_fit.npz'),
+            fits_dir.joinpath(f'{name}_fit_{args.resolution}.npz'),
             **optim_fit
         )
         
@@ -445,12 +474,16 @@ def main(args):
                 ax = plt.subplot(gs[4 + i, 0])
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
-            plt.savefig(fig_dir.joinpath(f'{name}_convergence.png'))
+            plt.savefig(fig_dir.joinpath(f'{name}_convergence_{args.resolution}.png'))
         
         # Plot Fits
         if args.plot:
-            chi2 = ((optimizer.best_model[0].detach().numpy() - obs['spec']) / (
-                np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['errs'] ** 2))) ** 2
+            if args.resolution == "default":
+                chi2 = ((optimizer.best_model[0].detach().numpy() - obs['spec']) / (
+                    np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['errs'] ** 2))) ** 2
+            else:
+                chi2 = ((optimizer.best_model[0].detach().numpy() - obs['conv_spec']) / (
+                    np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['conv_errs'] ** 2))) ** 2
             for i in range(optimizer.n_obs_ord):
                 fig = plt.figure(figsize=(50, 12))
                 gs = GridSpec(2, 1)
@@ -458,10 +491,14 @@ def main(args):
                 ax1 = plt.subplot(gs[0, 0])
                 ax2 = plt.subplot(gs[1, 0], sharex=ax1)
         
-                plt.title(f"{'K431_971'}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}", fontsize=48)
-                ax1.scatter(obs['wave'][i][obs['mask'][i]], obs['spec'][i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                plt.title(f"{name}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}, Resolution: {args.resolution}", fontsize=48)
+                if args.resolution == "default":
+                    ax1.scatter(obs['wave'][i][obs['mask'][i]], obs['spec'][i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                    ax2.scatter(obs['wave'][i][obs['mask'][i]], chi2[i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                else:
+                    ax1.scatter(obs['wave'][i][obs['conv_mask'][i]], obs['conv_spec'][i][obs['conv_mask'][i]], c='k', marker='.', alpha=0.8, )
+                    ax2.scatter(obs['wave'][i][obs['conv_mask'][i]], chi2[i][obs['conv_mask'][i]], c='k', marker='.', alpha=0.8, )
                 ax1.plot(obs['wave'][i], optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
-                ax2.scatter(obs['wave'][i][obs['mask'][i]], chi2[i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
                 ax1.set_ylabel('Flux [Counts]', fontsize=36)
                 ax2.set_ylabel('Chi2', fontsize=36)
                 ax2.set_xlabel('Wavelength [A]', fontsize=36)
@@ -469,6 +506,6 @@ def main(args):
                 ax1.tick_params('y', labelsize=36)
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
-                plt.savefig(fig_dir.joinpath(f"{name}_spec_{int(obs['ords'][i])}.png"))
+                plt.savefig(fig_dir.joinpath(f"{name}_spec_{args.resolution}_{int(obs['ords'][i])}.png"))
 
         print(f'Completed Fit for {name}')
