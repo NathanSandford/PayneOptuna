@@ -352,23 +352,6 @@ class CompositePayneEmulator(torch.nn.Module):
         cont_flux = torch.einsum('ij, ijk -> jk', coeffs, wave_)
         return cont_flux
 
-    #@staticmethod
-    #def interp(x, y, x_new, fill):
-    #    y_ = y.unsqueeze(0) if y.ndim == 1 else y
-    #    out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
-    #    x_new_indices = torch.searchsorted(x, x_new)
-    #    x_new_indices = x_new_indices.clamp(1, x.shape[0] - 1)
-    #    lo = x_new_indices - 1
-    #    hi = x_new_indices
-    #    x_lo = x[lo]
-    #    x_hi = x[hi]
-    #    y_lo = y_[:, lo]
-    #    y_hi = y_[:, hi]
-    #    slope = (y_hi - y_lo) / (x_hi - x_lo)
-    #    y_new = slope * (x_new - x_lo) + y_lo
-    #    y_new[:, out_of_bounds] = fill
-    #    return y_new
-
     @staticmethod
     def interp(x, y, x_new, fill):
         y_ = y.unsqueeze(0) if y.ndim == 1 else y
@@ -379,17 +362,34 @@ class CompositePayneEmulator(torch.nn.Module):
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
-            # Separate interpolation for each spectrum
-            y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
-            y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
-        else:
-            y_lo = y_[..., lo]
-            y_hi = y_[..., hi]
+        y_lo = y_[:, lo]
+        y_hi = y_[:, hi]
         slope = (y_hi - y_lo) / (x_hi - x_lo)
         y_new = slope * (x_new - x_lo) + y_lo
-        y_new[..., out_of_bounds] = fill
+        y_new[:, out_of_bounds] = fill
         return y_new
+
+    #@staticmethod
+    #def interp(x, y, x_new, fill):
+    #    y_ = y.unsqueeze(0) if y.ndim == 1 else y
+    #    out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
+    #    x_new_indices = torch.searchsorted(x, x_new)
+    #    x_new_indices = x_new_indices.clamp(1, x.shape[0] - 1)
+    #    lo = x_new_indices - 1
+    #    hi = x_new_indices
+    #    x_lo = x[lo]
+    #    x_hi = x[hi]
+    #    if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
+    #        # Separate interpolation for each spectrum
+    #        y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
+    #        y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
+    #    else:
+    #        y_lo = y_[..., lo]
+    #        y_hi = y_[..., hi]
+    #    slope = (y_hi - y_lo) / (x_hi - x_lo)
+    #    y_new = slope * (x_new - x_lo) + y_lo
+    #    y_new[..., out_of_bounds] = fill
+    #    return y_new
 
     @staticmethod
     def inst_broaden(wave, flux, errs, inst_res, model_res=None):
