@@ -487,14 +487,14 @@ def main(args):
     index = 0
     autocorr = np.empty(max_steps)
     old_tau = np.inf
-    for _ in sampler.sample(p0, iterations=max_steps, progress=True):
-        if sampler.iteration % 500:
+    for _ in sampler.sample(p0, iterations=max_steps, progress=False):
+        if sampler.iteration % 100:
             continue
         tau = sampler.get_autocorr_time(tol=0)
         autocorr[index] = np.mean(tau)
         print(
-            f"Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " + \
-            f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " + \
+            f"{args.obs_name} Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " +
+            f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " +
             f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau)}"
         )
         index += 1
@@ -520,18 +520,18 @@ def main(args):
     for i, label in enumerate(payne.labels):
         if label not in ["Teff", "logg", "v_micro", "Fe"]:
             print(
-                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' + \
-                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.4f} ' + \
+                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' +
+                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.4f} ' +
                 f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
             )
         elif label == "Fe":
             print(
-                f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' + \
+                f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' +
                 f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
             )
         else:
             print(
-                f'{label}\t = {unscaled_mean[i]:.4f} ' + \
+                f'{label}\t = {unscaled_mean[i]:.4f} ' +
                 f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
             )
 
