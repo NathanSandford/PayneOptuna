@@ -509,30 +509,29 @@ def main(args):
     flat_samples = sampler.get_chain(
         discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
     )
+    unscaled_flat_samples = payne.unscale_stellar_labels(flat_samples)
     scaled_mean = flat_samples.mean(axis=0)
     scaled_std = flat_samples.std(axis=0)
-    unscaled_mean = payne.unscale_stellar_labels(scaled_mean)
-    unscaled_std = (
-        payne.unscale_stellar_labels(scaled_mean - scaled_std) - unscaled_mean
-    )
+    unscaled_mean = unscaled_flat_samples.mean(axis=0)
+    unscaled_std = unscaled_flat_samples.std(axis=0)
 
     print("Sampling Summary:")
     for i, label in enumerate(payne.labels):
         if label not in ["Teff", "logg", "v_micro", "Fe"]:
             print(
-                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.2f} ' + \
-                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.2f} ' + \
-                f'({scaled_mean[i]:.2f} +/- {unscaled_std[i]:.2f})'
+                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' + \
+                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.4f} ' + \
+                f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
             )
         elif label == "Fe":
             print(
-                f"[{label}/H]\t = {unscaled_mean[i]:.2f} ' + \
-                f'+/- {unscaled_std:.2f} ({scaled_mean[i]:.2f} +/- {scaled_std:.2f})"
+                f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' + \
+                f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
             )
         else:
             print(
-                f"{label}\t = {unscaled_mean[i]:.2f} ' + \
-                f'+/- {unscaled_std:.2f} ({scaled_mean[i]:.2f} +/- {scaled_std:.2f})"
+                f'{label}\t = {unscaled_mean[i]:.4f} ' + \
+                f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
             )
 
     if args.plot:
@@ -546,5 +545,5 @@ def main(args):
         axes[-1].set_xlabel("step number")
         plt.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_chains.png"))
 
-        fig = corner(flat_samples, labels=payne.labels)
+        fig = corner(unscaled_flat_samples, labels=payne.labels)
         fig.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_corner.png"))
