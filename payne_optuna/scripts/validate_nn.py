@@ -100,7 +100,7 @@ def main(args):
         pin_memory=False,
     )
     datamodule.setup()
-    training_dataset = datamodule.training_dataset.dataset.__getitem__(datamodule.training_dataset.indices)
+    #training_dataset = datamodule.training_dataset.dataset.__getitem__(datamodule.training_dataset.indices)
     validation_dataset = datamodule.validation_dataset.dataset.__getitem__(datamodule.validation_dataset.indices)
 
     # Perform Validation
