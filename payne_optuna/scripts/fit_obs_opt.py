@@ -305,9 +305,11 @@ def main(args):
         # Convolve Observed Spectrum
         if args.resolution != "default":
             print(f'Convolving Observed Spectrum to R={args.resolution}')
+            masked_spec= deepcopy(obs['spec'])
+            masked_spec[~obs['mask']] = obs['scaled_blaz'][~obs['mask']]
             conv_obs_flux, conv_obs_errs = payne.inst_broaden(
                 wave=ensure_tensor(obs['wave'], precision=torch.float64),
-                flux=ensure_tensor(obs['spec']),
+                flux=ensure_tensor(masked_spec),
                 errs=ensure_tensor(obs['raw_errs']),
                 inst_res=ensure_tensor(int(args.resolution)),
                 model_res=ensure_tensor(86600),
@@ -315,15 +317,15 @@ def main(args):
             conv_obs_mask, _ = payne.inst_broaden(
                 wave=ensure_tensor(all_obs[name]['wave'], precision=torch.float64),
                 flux=ensure_tensor(all_obs[name]['mask']),
-                errs=ensure_tensor(all_obs[name]['raw_errs']),
+                errs=None,
                 inst_res=ensure_tensor(int(args.resolution)),
                 model_res=ensure_tensor(86600),
             )
             conv_obs_mask = (conv_obs_mask > 0.9999)
             conv_obs_errs[~conv_obs_mask] = np.inf
-            obs['conv_spec'] = conv_obs_flux
-            obs['conv_errs'] = conv_obs_errs
-            obs['conv_mask'] = conv_obs_mask
+            obs['conv_spec'] = conv_obs_flux.detach().numpy()
+            obs['conv_errs'] = conv_obs_errs.detach().numpy()
+            obs['conv_mask'] = conv_obs_mask.detach().numpy()
 
         # Plot Observed Spectrum & Blaze Function
         if args.plot:
