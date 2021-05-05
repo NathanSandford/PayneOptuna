@@ -315,8 +315,8 @@ def main(args):
                 model_res=ensure_tensor(86600),
             )
             conv_obs_mask, _ = payne.inst_broaden(
-                wave=ensure_tensor(all_obs[name]['wave'], precision=torch.float64),
-                flux=ensure_tensor(all_obs[name]['mask']),
+                wave=ensure_tensor(obs['wave'], precision=torch.float64),
+                flux=ensure_tensor(obs['mask']),
                 errs=None,
                 inst_res=ensure_tensor(int(args.resolution)),
                 model_res=ensure_tensor(86600),
