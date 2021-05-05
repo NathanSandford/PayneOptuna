@@ -35,6 +35,7 @@ def parse_args(options=None):
     parser.add_argument("data_dir", help="Directory containing data files")
     parser.add_argument("obs_name", help="Name of observation to fit")
     parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
+    parser.add_argument("-R", "--resolution", default='default', help="Resolution to convolve and fit to.")
     parser.add_argument(
         "-p", "--plot", action="store_true", default=False, help="Plot QA"
     )
@@ -324,67 +325,6 @@ def main(args):
         / np.quantile(obs["blaz"], 0.95, axis=1)[:, np.newaxis]
         * np.quantile(obs["spec"], 0.95, axis=1)[:, np.newaxis]
     )
-    # Scale Spec by Blaze
-    obs["norm_spec"] = obs["spec"] / obs["scaled_blaz"]
-    obs["norm_errs"] = obs["errs"] / obs["scaled_blaz"]
-
-    # Plot Observed Spectrum & Blaze Function
-    if args.plot:
-        n_ord = obs["ords"].shape[0]
-        fig = plt.figure(figsize=(10, n_ord))
-        gs = GridSpec(n_ord, 1)
-        gs.update(hspace=0.5)
-        for j, order in enumerate(obs["ords"]):
-            ax = plt.subplot(gs[j, 0])
-            # print(name, order)
-            tellurics_in_order = tellurics[
-                (
-                    (tellurics["wave_min"] > np.min(obs["wave"][j]))
-                    & (tellurics["wave_min"] < np.max(obs["wave"][j]))
-                )
-                | (
-                    (tellurics["wave_max"] > np.min(obs["wave"][j]))
-                    & (tellurics["wave_max"] < np.max(obs["wave"][j]))
-                )
-            ]
-            ax.plot(
-                obs["wave"][j],
-                obs["scaled_blaz"][j],
-                alpha=0.8,
-                c="r",
-                label="Scaled Blaze",
-            )
-            ax.scatter(
-                obs["wave"][j][obs["mask"][j]],
-                obs["spec"][j][obs["mask"][j]],
-                alpha=0.8,
-                marker=".",
-                s=1,
-                c="k",
-                label="Observed Spectrum",
-            )
-            if j == 0:
-                ax.set_title(args.obs_name)
-                ax.legend(fontsize=8)
-            for line in tellurics_in_order.index:
-                ax.axvspan(
-                    tellurics_in_order.loc[line, "wave_min"],
-                    tellurics_in_order.loc[line, "wave_max"],
-                    color="grey",
-                    alpha=0.5,
-                )
-            ax.set_ylim(0, 3 * np.mean(obs["spec"][j][obs["mask"][j]]))
-            ax.text(
-                0.98,
-                0.70,
-                f"Order: {int(order)}",
-                transform=ax.transAxes,
-                fontsize=6,
-                verticalalignment="top",
-                horizontalalignment="right",
-                bbox=dict(facecolor="white", alpha=0.8),
-            )
-        plt.savefig(fig_dir.joinpath(f"{args.obs_name}_obs.png"))
 
     # Load Models
     models = []
@@ -408,6 +348,100 @@ def main(args):
         vmacro_method="iso",
     )
 
+    # Convolve Observed Spectrum
+    if args.resolution != "default":
+        print(f'Convolving Observed Spectrum to R={args.resolution}')
+        masked_spec = deepcopy(obs['spec'])
+        masked_spec[~obs['mask']] = obs['scaled_blaz'][~obs['mask']]
+        conv_obs_flux, conv_obs_errs = payne.inst_broaden(
+            wave=ensure_tensor(obs['wave'], precision=torch.float64),
+            flux=ensure_tensor(masked_spec),
+            errs=ensure_tensor(obs['raw_errs']),
+            inst_res=ensure_tensor(int(args.resolution)),
+            model_res=ensure_tensor(86600),
+        )
+        conv_obs_mask, _ = payne.inst_broaden(
+            wave=ensure_tensor(obs['wave'], precision=torch.float64),
+            flux=ensure_tensor(obs['mask']),
+            errs=None,
+            inst_res=ensure_tensor(int(args.resolution)),
+            model_res=ensure_tensor(86600),
+        )
+        conv_obs_mask = (conv_obs_mask > 0.9999)
+        conv_obs_errs[~conv_obs_mask] = np.inf
+        obs['conv_spec'] = conv_obs_flux.detach().numpy()
+        obs['conv_errs'] = conv_obs_errs.detach().numpy()
+        obs['conv_mask'] = conv_obs_mask.detach().numpy()
+        obs["norm_spec"] = obs["conv_spec"] / obs["scaled_blaz"]
+        obs["norm_errs"] = obs["conv_errs"] / obs["scaled_blaz"]
+    else:
+        # Scale Spec by Blaze
+        obs["norm_spec"] = obs["spec"] / obs["scaled_blaz"]
+        obs["norm_errs"] = obs["errs"] / obs["scaled_blaz"]
+
+    # Plot Observed Spectrum & Blaze Function
+    if args.plot:
+        n_ord = obs["ords"].shape[0]
+        fig = plt.figure(figsize=(10, n_ord))
+        gs = GridSpec(n_ord, 1)
+        gs.update(hspace=0.5)
+        for j, order in enumerate(obs["ords"]):
+            ax = plt.subplot(gs[j, 0])
+            # print(name, order)
+            tellurics_in_order = tellurics[
+                (
+                        (tellurics["wave_min"] > np.min(obs["wave"][j]))
+                        & (tellurics["wave_min"] < np.max(obs["wave"][j]))
+                )
+                | (
+                        (tellurics["wave_max"] > np.min(obs["wave"][j]))
+                        & (tellurics["wave_max"] < np.max(obs["wave"][j]))
+                )
+                ]
+            ax.plot(
+                obs["wave"][j],
+                obs["scaled_blaz"][j],
+                alpha=0.8,
+                c="r",
+                label="Scaled Blaze",
+            )
+            ax.scatter(
+                obs["wave"][j][obs["mask"][j]],
+                obs["spec"][j][obs["mask"][j]],
+                alpha=0.8,
+                marker=".",
+                s=1,
+                c="k",
+                label="Observed Spectrum",
+            )
+            if args.resolution != "default":
+                ax.scatter(
+                    obs['wave'][j][obs['conv_mask'][j]], obs['conv_spec'][j][obs['conv_mask'][j]],
+                    alpha=0.8, marker='.', s=1, c='b', label='Convolved Spectrum'
+                )
+            if j == 0:
+                ax.set_title(args.obs_name)
+                ax.legend(fontsize=8)
+            for line in tellurics_in_order.index:
+                ax.axvspan(
+                    tellurics_in_order.loc[line, "wave_min"],
+                    tellurics_in_order.loc[line, "wave_max"],
+                    color="grey",
+                    alpha=0.5,
+                )
+            ax.set_ylim(0, 3 * np.mean(obs["spec"][j][obs["mask"][j]]))
+            ax.text(
+                0.98,
+                0.70,
+                f"Order: {int(order)}",
+                transform=ax.transAxes,
+                fontsize=6,
+                verticalalignment="top",
+                horizontalalignment="right",
+                bbox=dict(facecolor="white", alpha=0.8),
+            )
+        plt.savefig(fig_dir.joinpath(f"{args.obs_name}_obs.png"))
+
     # Load Optimizer Best Fit
     try:
         optim_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit.npz"))
@@ -419,7 +453,10 @@ def main(args):
     # Convert Obs Spectrum to Tensor
     obs['norm_spec'] = ensure_tensor(obs['norm_spec'])
     obs['norm_errs'] = ensure_tensor(obs['norm_errs'])
-    obs['mask'] = ensure_tensor(obs['mask'], precision=bool)
+    if args.resolution == "default":
+        obs['mask'] = ensure_tensor(obs['mask'], precision=bool)
+    else:
+        obs['mask'] = ensure_tensor(obs['conv_mask'], precision=bool)
 
     def gaussian_log_likelihood(pred, target, pred_errs, target_errs, mask):
         tot_vars = pred_errs ** 2 + target_errs ** 2
@@ -466,7 +503,7 @@ def main(args):
     nwalkers, ndim = p0.shape
 
     # Initialize Backend
-    sample_file = data_dir.joinpath(f"{args.obs_name}_mcmc_samples.h5")
+    sample_file = data_dir.joinpath(f"{args.obs_name}_mcmc_samples_{args.resolution}.h5")
     backend = emcee.backends.HDFBackend(sample_file, name=f"{args.obs_name}")
     backend.reset(nwalkers, ndim)
 
@@ -485,7 +522,7 @@ def main(args):
     index = 0
     autocorr = np.empty(max_steps)
     old_tau = np.inf
-    for _ in sampler.sample(p0, iterations=max_steps, progress=False):
+    for _ in sampler.sample(p0, iterations=max_steps, progress=False, store=True):
         if sampler.iteration % 100:
             continue
         tau = sampler.get_autocorr_time(tol=0)
@@ -514,7 +551,7 @@ def main(args):
     unscaled_mean = unscaled_flat_samples.mean(axis=0)
     unscaled_std = unscaled_flat_samples.std(axis=0)
 
-    print("Sampling Summary:")
+    print(f"{args.obs_name} Sampling Summary:")
     for i, label in enumerate(payne.labels):
         if label not in ["Teff", "logg", "v_micro", "Fe"]:
             print(
@@ -545,4 +582,4 @@ def main(args):
         plt.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_chains.png"))
 
         fig = corner(unscaled_flat_samples, labels=payne.labels)
-        fig.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_corner.png"))
+        fig.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_corner_{args.resolution}.png"))
