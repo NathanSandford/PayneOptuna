@@ -32,6 +32,10 @@ def parse_args(options=None):
     parser.add_argument("data_dir", help="Directory containing data files")
     parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
     parser.add_argument("-R", "--resolution", default='default', help="Resolution to convolve and fit to.")
+    parser.add_argument("-Vmacro", "--fit_vmacro", action='store_true', default=False, help="Fit vmacro.")
+    parser.add_argument("-Vmicro", "--fit_vmicro", action='store_true', default=False, help="Fit vmicro.")
+    parser.add_argument("-Vsini", "--fit_vsini", action='store_true', default=False, help="Fit vsini.")
+    parser.add_argument("-InstRes", "--fit_inst_res", action='store_true', default=False, help="Fit inst_res.")
     parser.add_argument('-p', "--plot", action='store_true', default=False, help="Plot QA")
     if options is None:
         args = parser.parse_args()
@@ -374,24 +378,32 @@ def main(args):
             learning_rates=dict(
                 stellar_labels=1e-1,
                 vmacro=1e-1,
+                vsini=1e-1,
+                inst_res=1e2,
                 rv=1e-2,
                 cont_coeffs=1e-1,
             ),
             learning_rate_decay=dict(
                 stellar_labels=0.99,
                 vmacro=0.99,
+                vsini=0.99,
+                inst_res=0.99,
                 rv=0.9,
                 cont_coeffs=0.99,
             ),
             learning_rate_decay_ts=dict(
                 stellar_labels=10,
                 vmacro=10,
+                vsini=10,
+                inst_res=10,
                 rv=10,
                 cont_coeffs=10,
             ),
             tolerances=dict(
                 d_stellar_labels=1e-5,
-                d_vmacro=1e-4,
+                d_vmacro=np.inf,
+                d_vsini=np.inf,
+                d_inst_res=np.inf,
                 d_rv=1e-4,
                 d_cont=5e-2,
                 d_loss=-np.inf,
@@ -399,17 +411,51 @@ def main(args):
             ),
         )
 
+        if args.resolution != "default":
+            try:
+                default_res_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit_default.npz"))
+                stellar_labels0 = default_res_fit['stellar_labels']
+                rv0 = default_res_fit['rv']
+                vmacro0 = default_res_fit['vmacro'] if args.fit_vmacro else None
+                vsini0 = default_res_fit['vsini'] if args.fit_vsini else None
+            except FileNotFoundError:
+                stellar_labels0 = torch.zeros(1, 12)
+                rv0 = 'prefit'
+                vmacro0 = 1.0 if args.fit_vmacro else None
+                vsini0 = 0.0 if args.fit_vsini else None
+            inst_res0 = int(args.resolution)
+        else:
+            stellar_labels0 = torch.zeros(1, 12)
+            rv0 = 'prefit'
+            vmacro0 = 1.0 if args.fit_vmacro else None
+            vsini0 = 0.0 if args.fit_vsini else None
+            inst_res0 = payne.model_res if args.fit_inst_res else None
+
         optimizer.fit(
             obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
             obs_errs=obs['errs'] if args.resolution == "default" else obs['conv_errs'],
             obs_wave=obs['wave'],
             obs_blaz=obs['scaled_blaz'],
-            inst_res=None if args.resolution == "default" else int(args.resolution),
+            params=dict(
+                stellar_labels='fit',
+                rv='fit',
+                vmacro='fit' if args.fit_vmacro else 'const',
+                vsini='fit' if args.fit_vsini else 'const',
+                inst_res='fit' if args.fit_inst_res else 'const',
+                cont_coeffs='fit',
+            ),
+            init_params=dict(
+                stellar_labels=stellar_labels0,
+                rv=rv0,
+                vmacro=vmacro0,
+                vsini=vsini0,
+                inst_res=inst_res0,
+                cont_coeffs='prefit'
+            ),
             max_epochs=10000,
-            prefit=['cont', 'rv'],
             prefit_cont_window=55,
-            verbose=True,
-            plot_prefits=False,
+            verbose=False,
+            plot_prefits=True,
             plot_fit_every=None,
         )
         
@@ -426,13 +472,20 @@ def main(args):
             else:
                 print(f'{label}\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
         print(f'RV\t = {optimizer.rv.item():.2f} ({payne.rv_scale} km/s)')
-        print(f'vmacro\t = {optimizer.vmacro.item():.2f} (km/s)')
+        if optimizer.vmacro is not None:
+            print(f'vmacro\t = {optimizer.vmacro.item():.2f} (km/s)')
+        if optimizer.vsini is not None:
+            print(f'vsini\t = {optimizer.vsini.item():.2f} (km/s)')
+        if optimizer.inst_res is not None:
+            print(f'inst_res\t = {optimizer.inst_res.item():.2f} (km/s)')
         
         # Save Labels & Fits
         optim_fit = {
             'stellar_labels': torch.clone(optimizer.stellar_labels).detach(),
             'rv': torch.clone(optimizer.rv).detach(),
-            'vmacro': torch.clone(optimizer.vmacro).detach(),
+            'vmacro': torch.clone(optimizer.vmacro).detach() if optimizer.vmacro is not None else None,
+            'vsini': torch.clone(optimizer.vsini).detach() if optimizer.vsini is not None else None,
+            'inst_res': torch.clone(optimizer.inst_res).detach() if optimizer.inst_res is not None else None,
             'cont_coeffs': torch.clone(torch.stack(optimizer.cont_coeffs)).detach(),
             'obs_wave': torch.clone(optimizer.obs_wave).detach(),
             'obs_flux': torch.clone(optimizer.obs_flux).detach(),
@@ -445,18 +498,21 @@ def main(args):
             fits_dir.joinpath(f'{name}_fit_{args.resolution}.npz'),
             **optim_fit
         )
-        
+
         # Plot Convergence
         if args.plot:
-            n_panels = len(optim_fit) + payne.n_cont_coeffs
+            n_panels = payne.n_cont_coeffs + 2 + np.sum(
+                [optim_fit[key] is not None for key in ['rv', 'vmacro', 'vsini', 'inst_res']])
+            panel = 0
             fig = plt.figure(figsize=(10, n_panels * 2))
             gs = GridSpec(n_panels, 1)
             gs.update(hspace=0.0)
-            ax0 = plt.subplot(gs[0, 0])
+            ax0 = plt.subplot(gs[panel, 0])
             ax0.plot(optimizer.history['loss'], label='loss')
             ax0.legend()
             ax0.set_yscale('log')
-            ax1 = plt.subplot(gs[1, 0])
+            panel += 1
+            ax1 = plt.subplot(gs[panel, 0], sharex=ax0)
             for i in range(optimizer.n_stellar_labels):
                 ax1.plot(
                     torch.cat(optimizer.history['stellar_labels'])[:, i],
@@ -465,18 +521,32 @@ def main(args):
                 )
             ax1.set_ylim(-0.6, 0.6)
             ax1.legend(ncol=payne.n_stellar_labels, loc='lower center', fontsize=6)
-            ax2 = plt.subplot(gs[2, 0])
+            panel += 1
+            ax2 = plt.subplot(gs[panel, 0], sharex=ax0)
             ax2.plot(np.array(optimizer.history['rv']), label='rv')
             ax2.legend()
-            ax3 = plt.subplot(gs[3, 0])
-            ax3.plot(np.array(optimizer.history['vmacro']), label='vmacro')
-            ax3.legend()
+            panel += 1
+            if optimizer.vmacro is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['vmacro']), label='vmacro')
+                ax.legend()
+                panel += 1
+            if optimizer.vsini is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['vsini']), label='vsini')
+                ax.legend()
+                panel += 1
+            if optimizer.inst_res is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['inst_res']), label='inst_res')
+                ax.legend()
+                panel += 1
             cont_coeffs = torch.stack(optimizer.history['cont_coeffs'])
             for i in range(optimizer.n_cont_coeffs):
-                ax = plt.subplot(gs[4 + i, 0])
+                ax = plt.subplot(gs[panel, 0])
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
-            plt.savefig(fig_dir.joinpath(f'{name}_convergence_{args.resolution}.png'))
+                panel += 1
         
         # Plot Fits
         if args.plot:
