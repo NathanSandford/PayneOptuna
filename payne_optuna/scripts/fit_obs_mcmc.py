@@ -444,7 +444,7 @@ def main(args):
 
     # Load Optimizer Best Fit
     try:
-        optim_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit.npz"))
+        optim_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit_default.npz"))
     except (FileNotFoundError):
         raise RuntimeError(
             f"Could not load optimizer solutions ({args.obs_name}_fit.npz)."
@@ -497,13 +497,13 @@ def main(args):
         return log_like + log_priors
 
     # Initialize Walkers
-    p0 = optim_fit["stellar_labels"] + 1e-1 * np.random.randn(
+    p0 = optim_fit["stellar_labels"] + 1e-2 * np.random.randn(
         64, payne.n_stellar_labels
     )
     nwalkers, ndim = p0.shape
 
     # Initialize Backend
-    sample_file = data_dir.joinpath(f"{args.obs_name}_mcmc_samples_{args.resolution}.h5")
+    sample_file = data_dir.joinpath(f"mcmc_samples_{args.resolution}.h5")
     backend = emcee.backends.HDFBackend(sample_file, name=f"{args.obs_name}")
     backend.reset(nwalkers, ndim)
 
@@ -528,9 +528,9 @@ def main(args):
         tau = sampler.get_autocorr_time(tol=0)
         autocorr[index] = np.mean(tau)
         print(
-            f"{args.obs_name} Step {sampler.iteration}: Tau = {autocorr[index]:.0f}, " +
-            f"t/100Tau = {sampler.iteration/(100*autocorr[index]):.2f}, " +
-            f"|dTau/Tau| = {np.mean(np.abs(old_tau - tau) / tau):.3f}"
+            f"{args.obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
+            f"t/100Tau = {sampler.iteration/(100*np.max(tau)):.2f}, " +
+            f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
         index += 1
 
