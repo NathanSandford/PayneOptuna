@@ -414,22 +414,22 @@ def main(args):
         if args.resolution != "default":
             try:
                 default_res_fit = np.load(fits_dir.joinpath(f"{name}_fit_default.npz"))
-                stellar_labels0 = default_res_fit['stellar_labels']
-                rv0 = default_res_fit['rv']
-                vmacro0 = default_res_fit['vmacro'] if args.fit_vmacro else None
-                vsini0 = default_res_fit['vsini'] if args.fit_vsini else None
+                stellar_labels0 = ensure_tensor(default_res_fit['stellar_labels'])
+                rv0 = ensure_tensor(default_res_fit['rv'])
+                vmacro0 = ensure_tensor(default_res_fit['vmacro']) if args.fit_vmacro else None
+                vsini0 = ensure_tensor(default_res_fit['vsini']) if args.fit_vsini else None
             except FileNotFoundError:
                 stellar_labels0 = torch.zeros(1, 12)
                 rv0 = 'prefit'
                 vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
                 vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
-            inst_res0 = int(args.resolution)
+            inst_res0 = ensure_tensor(int(args.resolution))
         else:
             stellar_labels0 = torch.zeros(1, 12)
             rv0 = 'prefit'
             vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
             vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
-            inst_res0 = payne.model_res if args.fit_inst_res else None
+            inst_res0 = ensure_tensor(payne.model_res) if args.fit_inst_res else None
 
         optimizer.fit(
             obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
@@ -547,6 +547,7 @@ def main(args):
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
+            plt.savefig(fig_dir.joinpath(f'{name}_convergence_{args.resolution}.png'))
         
         # Plot Fits
         if args.plot:
