@@ -737,6 +737,16 @@ class PayneOptimizer:
     def prefit_stellar_labels(self, plot=False):
         raise NotImplementedError
 
+    def holtzman2015(self, scaled_logg):
+        logg_min = np.array(list(self.emulator.models[0].x_min.values()))[1]
+        logg_max = np.array(list(self.emulator.models[0].x_max.values()))[1]
+        vmicro_min = np.array(list(self.emulator.models[0].x_min.values()))[2]
+        vmicro_max = np.array(list(self.emulator.models[0].x_max.values()))[2]
+        unscaled_logg = (scaled_logg + 0.5) * (logg_max - logg_min) + logg_min
+        unscaled_vmicro = 2.478 - 0.325*unscaled_logg
+        scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
+        return scaled_vmicro
+
     def forward(self):
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
@@ -772,6 +782,7 @@ class PayneOptimizer:
             ),
             max_epochs=1000,
             prefit_cont_window=55,
+            use_holtzman2015=False,
             verbose=False,
             plot_prefits=False,
             plot_fit_every=None,
@@ -791,6 +802,8 @@ class PayneOptimizer:
         self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
         self.c_flat[0] = 1.0
         self.prefit_cont_window = prefit_cont_window
+
+        self.use_holtzman2015 = use_holtzman2015
 
         # Initialize Starting Values
         # Initialize Starting Values
@@ -978,6 +991,8 @@ class PayneOptimizer:
             # Set Bounds
             with torch.no_grad():
                 self.stellar_labels.clamp_(min=-0.55, max=0.55)
+                if self.use_holtzman2015:
+                    self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.vmacro is not None:
                     self.vmacro.clamp_(min=1e-3, max=15.0)
                 if self.vsini is not None:
