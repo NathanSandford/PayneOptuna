@@ -373,7 +373,7 @@ class CompositePayneEmulator(torch.nn.Module):
         else:
             self.mod_errs = [None for model in self.models]
         self.mod_bounds = [ensure_tensor(model_bound) for model_bound in model_bounds]
-        self.model_res = ensure_tensor(model_res)
+        self.model_res = model_res
         self.labels = self.models[0].labels
         self.stellar_labels_min = ensure_tensor(list(self.models[0].x_min.values()))
         self.stellar_labels_max = ensure_tensor(list(self.models[0].x_max.values()))
