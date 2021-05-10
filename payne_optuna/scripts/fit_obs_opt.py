@@ -421,14 +421,14 @@ def main(args):
             except FileNotFoundError:
                 stellar_labels0 = torch.zeros(1, 12)
                 rv0 = 'prefit'
-                vmacro0 = 1.0 if args.fit_vmacro else None
-                vsini0 = 0.0 if args.fit_vsini else None
+                vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
+                vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
             inst_res0 = int(args.resolution)
         else:
             stellar_labels0 = torch.zeros(1, 12)
             rv0 = 'prefit'
-            vmacro0 = 1.0 if args.fit_vmacro else None
-            vsini0 = 0.0 if args.fit_vsini else None
+            vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
+            vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
             inst_res0 = payne.model_res if args.fit_inst_res else None
 
         optimizer.fit(
