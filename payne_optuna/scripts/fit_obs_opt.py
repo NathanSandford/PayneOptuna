@@ -413,7 +413,7 @@ def main(args):
 
         if args.resolution != "default":
             try:
-                default_res_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit_default.npz"))
+                default_res_fit = np.load(fits_dir.joinpath(f"{name}_fit_default.npz"))
                 stellar_labels0 = default_res_fit['stellar_labels']
                 rv0 = default_res_fit['rv']
                 vmacro0 = default_res_fit['vmacro'] if args.fit_vmacro else None
