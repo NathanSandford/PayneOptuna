@@ -1000,7 +1000,7 @@ class PayneOptimizer:
                 if self.inst_res is not None:
                     self.inst_res.clamp_(
                         min=100,
-                        max=self.emulator.mod_res if self.emulator.mod_res is not None else np.inf
+                        max=self.emulator.model_res if self.emulator.model_res is not None else np.inf
                     )
 
             # Check Convergence
