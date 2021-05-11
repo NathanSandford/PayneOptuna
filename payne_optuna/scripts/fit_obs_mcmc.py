@@ -481,7 +481,9 @@ def main(args):
         mod_spec, mod_errs = model(
             stellar_labels=ensure_tensor(stellar_labels),
             rv=ensure_tensor(optim_fit["rv"]),
-            vmacro=ensure_tensor(optim_fit["vmacro"]),
+            vmacro=ensure_tensor(optim_fit["vmacro"]) if optim_fit["vmacro"] is not None else None,
+            vsini=ensure_tensor(optim_fit["vsini"]) if optim_fit["vsini"] is not None else None,
+            inst_res=ensure_tensor(optim_fit["inst_res"]) if optim_fit["inst_res"] is not None else None,
             cont_coeffs=ensure_tensor(optim_fit["cont_coeffs"]),
         )
         log_like = (
@@ -498,12 +500,12 @@ def main(args):
 
     # Initialize Walkers
     p0 = optim_fit["stellar_labels"] + 1e-2 * np.random.randn(
-        64, payne.n_stellar_labels
+        512, payne.n_stellar_labels
     )
     nwalkers, ndim = p0.shape
 
     # Initialize Backend
-    sample_file = data_dir.joinpath(f"mcmc_samples_{args.resolution}.h5")
+    sample_file = data_dir.joinpath(f"{args.obs_name}_mcmc_samples_{args.resolution}.h5")
     backend = emcee.backends.HDFBackend(sample_file, name=f"{args.obs_name}")
     backend.reset(nwalkers, ndim)
 
@@ -512,6 +514,7 @@ def main(args):
         nwalkers,
         ndim,
         log_probability,
+        moves=emcee.moves.KDEMove(),
         args=(payne, obs),
         vectorize=True,
         backend=backend,
@@ -529,13 +532,13 @@ def main(args):
         autocorr[index] = np.mean(tau)
         print(
             f"{args.obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
-            f"t/100Tau = {sampler.iteration/(100*np.max(tau)):.2f}, " +
+            f"t/100Tau = {sampler.iteration/(30*np.max(tau)):.2f}, " +
             f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
         index += 1
 
         # Check convergence
-        converged = np.all(tau * 100 < sampler.iteration)
+        converged = np.all(tau * 30 < sampler.iteration)
         converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
         old_tau = tau
         if converged:
