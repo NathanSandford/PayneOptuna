@@ -482,8 +482,8 @@ def main(args):
             stellar_labels=ensure_tensor(stellar_labels),
             rv=ensure_tensor(optim_fit["rv"]),
             vmacro=ensure_tensor(optim_fit["vmacro"]) if optim_fit["vmacro"] is not None else None,
-            vsini=ensure_tensor(optim_fit["vsini"]) if optim_fit["vsini"] is not None else None,
-            inst_res=ensure_tensor(optim_fit["inst_res"]) if optim_fit["inst_res"] is not None else None,
+            vsini=None,  # ensure_tensor(optim_fit["vsini"]) if optim_fit["vsini"] is not None else None,
+            inst_res=None if args.resolution == 'default' else args.resolution,  # ensure_tensor(optim_fit["inst_res"]) if optim_fit["inst_res"] is not None else None,
             cont_coeffs=ensure_tensor(optim_fit["cont_coeffs"]),
         )
         log_like = (
