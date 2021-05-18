@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 
-
 def ensure_tensor(input_, precision=torch.float32):
     if isinstance(input_, torch.Tensor):
         return input_.to(precision)
@@ -16,10 +15,10 @@ def ensure_tensor(input_, precision=torch.float32):
 
 
 def j_nu(x, nu, n_tau=100):
-    x_ = x.view(-1, 1)
+    x_ = x.unsqueeze(-1)
     tau = torch.linspace(0, np.pi, n_tau).view(1,-1)
     integrand = torch.cos(nu*tau - x_ * torch.sin(tau))
-    return (1/np.pi) * torch.trapz(integrand, tau, dim=-1)
+    return (1/np.pi) * torch.trapz(integrand, tau[0], dim=-1)
 
 
 def interp(x, y, x_new, fill=None):

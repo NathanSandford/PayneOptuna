@@ -17,7 +17,7 @@ dependencies:
   - pytorch::pytorch>=1.7
   - pytorch::torchaudio>=0.7
   - pytorch::torchvision>=0.8
-  - conda-forge::pytorch-lightning==1.1.7
+  - conda-forge::pytorch-lightning==1.2.6
   - conda-forge::optuna>=2.5
   - conda-forge::tensorboard>=2.4
   - conda-forge::ipywidgets>=7.5
