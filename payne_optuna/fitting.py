@@ -3,7 +3,7 @@ import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.ndimage import percentile_filter
 import torch
-from .utils import ensure_tensor, j_nu, interp
+from .utils import ensure_tensor, j_nu
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
@@ -84,11 +84,16 @@ class PayneEmulator:
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        y_lo = y_[:, lo]
-        y_hi = y_[:, hi]
+        if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
+            # Separate interpolation for each spectrum
+            y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
+            y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
+        else:
+            y_lo = y_[..., lo]
+            y_hi = y_[..., hi]
         slope = (y_hi - y_lo) / (x_hi - x_lo)
         y_new = slope * (x_new - x_lo) + y_lo
-        y_new[:, out_of_bounds] = fill
+        y_new[..., out_of_bounds] = fill
         return y_new
 
     @staticmethod
@@ -102,13 +107,15 @@ class PayneEmulator:
         inv_res_grid = torch.diff(torch.log(wave))
         dx = torch.median(inv_res_grid)
         ss = torch.fft.rfftfreq(wave.shape[-1], d=dx)
-        kernel = torch.exp(-2 * (np.pi ** 2) * (sigma ** 2) * (ss ** 2))
+        sigma_ = sigma.repeat(ss.shape[0]).view(ss.shape[0], -1).T
+        ss_ = ss.repeat(1, sigma.shape[0]).view(sigma.shape[0], -1)
+        kernel = torch.exp(-2 * (np.pi ** 2) * (sigma_ ** 2) * (ss_ ** 2))
         flux_ff = torch.fft.rfft(flux)
-        flux_ff *= kernel
+        flux_ff *= kernel.unsqueeze(1)
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
         if errs is not None:
             errs_ff = torch.fft.rfft(errs)
-            errs_ff *= kernel
+            errs_ff *= kernel.unsqueeze(1)
             errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         else:
             errs_conv = None
@@ -118,19 +125,20 @@ class PayneEmulator:
     def rot_broaden(wave, flux, errs, vsini):
         dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
         freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
-        ub = 2.0 * np.pi * vsini * freq[1:]
+        ub = 2.0 * np.pi * vsini.unsqueeze(-1) * freq[1:]
         j1_term = j_nu(ub, 1) / ub
         cos_term = 3.0 * torch.cos(ub) / (2 * ub ** 2)
         sin_term = 3.0 * torch.sin(ub) / (2 * ub ** 3)
         sb = j1_term - cos_term + sin_term
         # Clean up rounding errors at low frequency; Should be safe for vsini > 0.1 km/s
-        sb[freq[1:] < freq[1:][torch.argmax(sb)]] = 1.0
+        low_freq_idx = (freq[1:].repeat(vsini.shape[0], 1).T < freq[1:][torch.argmax(sb, dim=-1)]).T
+        sb[low_freq_idx] = 1.0
         flux_ff = torch.fft.rfft(flux)
-        flux_ff *= torch.cat([torch.Tensor([1.0]), sb])
+        flux_ff *= torch.hstack([torch.ones(vsini.shape[0], 1), sb])
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
         if errs is not None:
-            errs_ff = torch.fft.rfft(errs)
-            errs_ff *= torch.cat([torch.Tensor([1.0]), sb])
+            errs_ff = torch.fft.rfft(errs).repeat(vsini.shape[0], 1)
+            errs_ff *= torch.hstack([torch.ones(vsini.shape[0], 1), sb])
             errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         else:
             errs_conv = None
@@ -252,14 +260,14 @@ class PayneEmulator:
             rv=rv * self.rv_scale,
         )
         # Interpolate to Observed Wavelength
-        intp_flux = interp(
+        intp_flux = self.interp(
             x=self.mod_wave,
             y=shifted_flux,
             x_new=self.obs_wave,
             fill=1.0,
         )
         if self.include_model_errs:
-            intp_errs = interp(
+            intp_errs = self.interp(
                 x=self.mod_wave,
                 y=shifted_errs,
                 x_new=self.obs_wave,
@@ -318,14 +326,14 @@ class PayneEmulator:
             rv=rv * self.rv_scale,
         )
         # Interpolate to Observed Wavelength
-        intp_flux = interp(
+        intp_flux = self.interp(
             x=self.mod_wave,
             y=shifted_flux,
             x_new=self.obs_wave,
             fill=1.0,
         )
         if self.include_model_errs:
-            intp_errs = interp(
+            intp_errs = self.interp(
                 x=self.mod_wave,
                 y=shifted_errs,
                 x_new=self.obs_wave,
@@ -419,34 +427,17 @@ class CompositePayneEmulator(torch.nn.Module):
         hi = x_new_indices
         x_lo = x[lo]
         x_hi = x[hi]
-        y_lo = y_[:, lo]
-        y_hi = y_[:, hi]
+        if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
+            # Separate interpolation for each spectrum
+            y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
+            y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
+        else:
+            y_lo = y_[..., lo]
+            y_hi = y_[..., hi]
         slope = (y_hi - y_lo) / (x_hi - x_lo)
         y_new = slope * (x_new - x_lo) + y_lo
-        y_new[:, out_of_bounds] = fill
+        y_new[..., out_of_bounds] = fill
         return y_new
-
-    #@staticmethod
-    #def interp(x, y, x_new, fill):
-    #    y_ = y.unsqueeze(0) if y.ndim == 1 else y
-    #    out_of_bounds = (x_new < x[0]) | (x_new > x[-1])
-    #    x_new_indices = torch.searchsorted(x, x_new)
-    #    x_new_indices = x_new_indices.clamp(1, x.shape[0] - 1)
-    #    lo = x_new_indices - 1
-    #    hi = x_new_indices
-    #    x_lo = x[lo]
-    #    x_hi = x[hi]
-    #    if (y_.shape[0] == lo.shape[0] == hi.shape[0]) and (y_.shape[0] > 1):
-    #        # Separate interpolation for each spectrum
-    #        y_lo = torch.vstack([y_[i, lo[i]] for i in range(lo.shape[0])])
-    #        y_hi = torch.vstack([y_[i, hi[i]] for i in range(hi.shape[0])])
-    #    else:
-    #        y_lo = y_[..., lo]
-    #        y_hi = y_[..., hi]
-    #    slope = (y_hi - y_lo) / (x_hi - x_lo)
-    #    y_new = slope * (x_new - x_lo) + y_lo
-    #    y_new[..., out_of_bounds] = fill
-    #    return y_new
 
     @staticmethod
     def inst_broaden(wave, flux, errs, inst_res, model_res=None):
@@ -459,13 +450,15 @@ class CompositePayneEmulator(torch.nn.Module):
         inv_res_grid = torch.diff(torch.log(wave))
         dx = torch.median(inv_res_grid)
         ss = torch.fft.rfftfreq(wave.shape[-1], d=dx)
-        kernel = torch.exp(-2 * (np.pi ** 2) * (sigma ** 2) * (ss ** 2))
+        sigma_ = sigma.repeat(ss.shape[0]).view(ss.shape[0], -1).T
+        ss_ = ss.repeat(1, sigma.shape[0]).view(sigma.shape[0], -1)
+        kernel = torch.exp(-2 * (np.pi ** 2) * (sigma_ ** 2) * (ss_ ** 2))
         flux_ff = torch.fft.rfft(flux)
-        flux_ff *= kernel
+        flux_ff *= kernel.unsqueeze(1)
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
         if errs is not None:
             errs_ff = torch.fft.rfft(errs)
-            errs_ff *= kernel
+            errs_ff *= kernel.unsqueeze(1)
             errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         else:
             errs_conv = None
@@ -475,19 +468,20 @@ class CompositePayneEmulator(torch.nn.Module):
     def rot_broaden(wave, flux, errs, vsini):
         dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[:-1])
         freq = torch.fft.rfftfreq(flux.shape[-1], dv).to(torch.float64)
-        ub = 2.0 * np.pi * vsini * freq[1:]
+        ub = 2.0 * np.pi * vsini.unsqueeze(-1) * freq[1:]
         j1_term = j_nu(ub, 1) / ub
         cos_term = 3.0 * torch.cos(ub) / (2 * ub ** 2)
         sin_term = 3.0 * torch.sin(ub) / (2 * ub ** 3)
         sb = j1_term - cos_term + sin_term
         # Clean up rounding errors at low frequency; Should be safe for vsini > 0.1 km/s
-        sb[freq[1:] < freq[1:][torch.argmax(sb)]] = 1.0
+        low_freq_idx = (freq[1:].repeat(vsini.shape[0], 1).T < freq[1:][torch.argmax(sb, dim=-1)]).T
+        sb[low_freq_idx] = 1.0
         flux_ff = torch.fft.rfft(flux)
-        flux_ff *= torch.cat([torch.Tensor([1.0]), sb])
+        flux_ff *= torch.hstack([torch.ones(vsini.shape[0], 1), sb])
         flux_conv = torch.fft.irfft(flux_ff, n=flux.shape[-1])
         if errs is not None:
-            errs_ff = torch.fft.rfft(errs)
-            errs_ff *= torch.cat([torch.Tensor([1.0]), sb])
+            errs_ff = torch.fft.rfft(errs).repeat(vsini.shape[0], 1)
+            errs_ff *= torch.hstack([torch.ones(vsini.shape[0], 1), sb])
             errs_conv = torch.fft.irfft(errs_ff, n=errs.shape[-1])
         else:
             errs_conv = None
