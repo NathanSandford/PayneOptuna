@@ -16,6 +16,7 @@ from astropy.coordinates import UnitSphericalRepresentation, CartesianRepresenta
 import torch
 from payne_optuna.model import LightningPaynePerceptron
 from payne_optuna.fitting import CompositePayneEmulator, PayneOptimizer, mse_loss
+from payne_optuna.utils import ensure_tensor
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -30,6 +31,11 @@ def parse_args(options=None):
     parser.add_argument("config_dir", help="Directory containing model config files")
     parser.add_argument("data_dir", help="Directory containing data files")
     parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
+    parser.add_argument("-R", "--resolution", default='default', help="Resolution to convolve and fit to.")
+    parser.add_argument("-Vmacro", "--fit_vmacro", action='store_true', default=False, help="Fit vmacro.")
+    parser.add_argument("-Vmicro", "--fit_vmicro", action='store_true', default=False, help="Fit vmicro.")
+    parser.add_argument("-Vsini", "--fit_vsini", action='store_true', default=False, help="Fit vsini.")
+    parser.add_argument("-InstRes", "--fit_inst_res", action='store_true', default=False, help="Fit inst_res.")
     parser.add_argument('-p', "--plot", action='store_true', default=False, help="Plot QA")
     if options is None:
         args = parser.parse_args()
@@ -38,7 +44,7 @@ def parse_args(options=None):
     return args
 
 
-class MasterFlats():
+class MasterFlats:
     def __init__(self, file):
         with fits.open(file) as hdul:
             self.pixelflat_model = hdul['PIXELFLAT_MODEL'].data
@@ -274,42 +280,6 @@ def main(args):
         # Save to Dictionary
         all_obs[obs_spec_file.stem[7:]] = obs
 
-    # Plot Observed Spectrum & Blaze Function
-    if args.plot:
-        for i, name_obs in enumerate(all_obs.items()):
-            name, obs = name_obs
-            n_ord = obs['ords'].shape[0]
-            fig = plt.figure(figsize=(10, n_ord))
-            gs = GridSpec(n_ord, 1)
-            gs.update(hspace=0.5)
-            for j, order in enumerate(obs['ords']):
-                ax = plt.subplot(gs[j, 0])
-                # print(name, order)
-                tellurics_in_order = tellurics[
-                    (
-                            (tellurics['wave_min'] > np.min(obs['wave'][j])) \
-                            & (tellurics['wave_min'] < np.max(obs['wave'][j]))
-                    ) \
-                    | (
-                            (tellurics['wave_max'] > np.min(obs['wave'][j])) \
-                            & (tellurics['wave_max'] < np.max(obs['wave'][j]))
-                    )
-                    ]
-                ax.plot(obs['wave'][j], obs['scaled_blaz'][j], alpha=0.8, c='r', label='Scaled Blaze')
-                ax.scatter(obs['wave'][j][obs['mask'][j]], obs['spec'][j][obs['mask'][j]], alpha=0.8, marker='.', s=1,
-                           c='k', label='Observed Spectrum')
-                if j == 0:
-                    ax.set_title(name)
-                    ax.legend(fontsize=8)
-                for line in tellurics_in_order.index:
-                    ax.axvspan(tellurics_in_order.loc[line, 'wave_min'], tellurics_in_order.loc[line, 'wave_max'],
-                               color='grey', alpha=0.5)
-                ax.set_ylim(0, 3 * np.mean(obs['spec'][j][obs['mask'][j]]))
-                ax.text(0.98, 0.70, f"Order: {int(order)}", transform=ax.transAxes, fontsize=6, verticalalignment='top',
-                        horizontalalignment='right',
-                        bbox=dict(facecolor='white', alpha=0.8))
-            plt.savefig(fig_dir.joinpath(f'{name}_obs.png'))
-
     # Load Models
     models = []
     for config_file in config_files:
@@ -317,7 +287,7 @@ def main(args):
 
     # Perform Fit
     for name, obs in all_obs.items():
-        print(f'Beginning Fit for {name}')
+        print(f'Beginning Analysis of {name}')
 
         # Determine Model Breaks
         model_bounds = find_model_breaks(models, obs)
@@ -336,6 +306,71 @@ def main(args):
             vmacro_method='iso',
         )
 
+        # Convolve Observed Spectrum
+        if args.resolution != "default":
+            print(f'Convolving Observed Spectrum to R={args.resolution}')
+            masked_spec= deepcopy(obs['spec'])
+            masked_spec[~obs['mask']] = obs['scaled_blaz'][~obs['mask']]
+            conv_obs_flux, conv_obs_errs = payne.inst_broaden(
+                wave=ensure_tensor(obs['wave'], precision=torch.float64),
+                flux=ensure_tensor(masked_spec),
+                errs=ensure_tensor(obs['raw_errs']),
+                inst_res=ensure_tensor(int(args.resolution)),
+                model_res=ensure_tensor(86600),
+            )
+            conv_obs_mask, _ = payne.inst_broaden(
+                wave=ensure_tensor(obs['wave'], precision=torch.float64),
+                flux=ensure_tensor(obs['mask']),
+                errs=None,
+                inst_res=ensure_tensor(int(args.resolution)),
+                model_res=ensure_tensor(86600),
+            )
+            conv_obs_mask = (conv_obs_mask > 0.9999)
+            conv_obs_errs[~conv_obs_mask] = np.inf
+            obs['conv_spec'] = conv_obs_flux.detach().numpy()
+            obs['conv_errs'] = conv_obs_errs.detach().numpy()
+            obs['conv_mask'] = conv_obs_mask.detach().numpy()
+
+        # Plot Observed Spectrum & Blaze Function
+        if args.plot:
+            n_ord = obs['ords'].shape[0]
+            fig = plt.figure(figsize=(10, n_ord))
+            gs = GridSpec(n_ord, 1)
+            gs.update(hspace=0.5)
+            for j, order in enumerate(obs['ords']):
+                ax = plt.subplot(gs[j, 0])
+                tellurics_in_order = tellurics[
+                    (
+                            (tellurics['wave_min'] > np.min(obs['wave'][j]))
+                            & (tellurics['wave_min'] < np.max(obs['wave'][j]))
+                    )
+                    | (
+                            (tellurics['wave_max'] > np.min(obs['wave'][j]))
+                            & (tellurics['wave_max'] < np.max(obs['wave'][j]))
+                    )
+                    ]
+                ax.plot(obs['wave'][j], obs['scaled_blaz'][j], alpha=0.8, c='r', label='Scaled Blaze')
+                ax.scatter(
+                    obs['wave'][j][obs['mask'][j]], obs['spec'][j][obs['mask'][j]],
+                    alpha=0.8, marker='.', s=1, c='k', label='Observed Spectrum'
+                )
+                if args.resolution != "default":
+                    ax.scatter(
+                        obs['wave'][j][obs['conv_mask'][j]], obs['conv_spec'][j][obs['conv_mask'][j]],
+                        alpha=0.8, marker='.', s=1, c='b', label='Convolved Spectrum'
+                    )
+                if j == 0:
+                    ax.set_title(name)
+                    ax.legend(fontsize=8)
+                for line in tellurics_in_order.index:
+                    ax.axvspan(tellurics_in_order.loc[line, 'wave_min'], tellurics_in_order.loc[line, 'wave_max'],
+                               color='grey', alpha=0.5)
+                ax.set_ylim(0, 3 * np.mean(obs['spec'][j][obs['mask'][j]]))
+                ax.text(0.98, 0.70, f"Order: {int(order)}", transform=ax.transAxes, fontsize=6, verticalalignment='top',
+                        horizontalalignment='right',
+                        bbox=dict(facecolor='white', alpha=0.8))
+            plt.savefig(fig_dir.joinpath(f'{name}_obs_{args.resolution}.png'))
+
         # Initialize Optimizer
         optimizer = PayneOptimizer(
             emulator=payne,
@@ -343,24 +378,32 @@ def main(args):
             learning_rates=dict(
                 stellar_labels=1e-1,
                 vmacro=1e-1,
+                vsini=1e-1,
+                inst_res=1e2,
                 rv=1e-2,
                 cont_coeffs=1e-1,
             ),
             learning_rate_decay=dict(
                 stellar_labels=0.99,
                 vmacro=0.99,
+                vsini=0.99,
+                inst_res=0.99,
                 rv=0.9,
                 cont_coeffs=0.99,
             ),
             learning_rate_decay_ts=dict(
                 stellar_labels=10,
                 vmacro=10,
+                vsini=10,
+                inst_res=10,
                 rv=10,
                 cont_coeffs=10,
             ),
             tolerances=dict(
                 d_stellar_labels=1e-5,
-                d_vmacro=1e-4,
+                d_vmacro=np.inf,
+                d_vsini=np.inf,
+                d_inst_res=np.inf,
                 d_rv=1e-4,
                 d_cont=5e-2,
                 d_loss=-np.inf,
@@ -368,17 +411,51 @@ def main(args):
             ),
         )
 
+        if args.resolution != "default":
+            try:
+                default_res_fit = np.load(fits_dir.joinpath(f"{name}_fit_default.npz"))
+                stellar_labels0 = ensure_tensor(default_res_fit['stellar_labels'])
+                rv0 = ensure_tensor(default_res_fit['rv'])
+                vmacro0 = ensure_tensor(default_res_fit['vmacro']) if args.fit_vmacro else None
+                vsini0 = ensure_tensor(default_res_fit['vsini']) if args.fit_vsini else None
+            except FileNotFoundError:
+                stellar_labels0 = torch.zeros(1, 12)
+                rv0 = 'prefit'
+                vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
+                vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
+            inst_res0 = ensure_tensor(int(args.resolution))
+        else:
+            stellar_labels0 = torch.zeros(1, 12)
+            rv0 = 'prefit'
+            vmacro0 = ensure_tensor(1.0) if args.fit_vmacro else None
+            vsini0 = ensure_tensor(0.0) if args.fit_vsini else None
+            inst_res0 = ensure_tensor(payne.model_res) if args.fit_inst_res else None
+
         optimizer.fit(
-            obs_flux=obs['spec'],
-            obs_errs=obs['errs'],
+            obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
+            obs_errs=obs['errs'] if args.resolution == "default" else obs['conv_errs'],
             obs_wave=obs['wave'],
             obs_blaz=obs['scaled_blaz'],
-            inst_res=None,
+            params=dict(
+                stellar_labels='fit',
+                rv='fit',
+                vmacro='fit' if args.fit_vmacro else 'const',
+                vsini='fit' if args.fit_vsini else 'const',
+                inst_res='fit' if args.fit_inst_res else 'const',
+                cont_coeffs='fit',
+            ),
+            init_params=dict(
+                stellar_labels=stellar_labels0,
+                rv=rv0,
+                vmacro=vmacro0,
+                vsini=vsini0,
+                inst_res=inst_res0,
+                cont_coeffs='prefit'
+            ),
             max_epochs=10000,
-            prefit=['cont', 'rv'],
             prefit_cont_window=55,
-            verbose=True,
-            plot_prefits=False,
+            verbose=False,
+            plot_prefits=True,
             plot_fit_every=None,
         )
         
@@ -386,22 +463,29 @@ def main(args):
         unscaled_stellar_labels = payne.unscale_stellar_labels(optimizer.stellar_labels)
         
         print('Best Fit Labels:')
-        for i, label in enumerate(payne.models[0].labels):
+        for i, label in enumerate(payne.labels):
             if label not in ['Teff', 'logg', 'v_micro', 'Fe']:
                 print(
-                    f'[{label}/Fe]\t = {unscaled_stellar_labels[0, i] - unscaled_stellar_labels[0, payne.models[0].labels.index("Fe")]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
+                    f'[{label}/Fe]\t = {unscaled_stellar_labels[0, i] - unscaled_stellar_labels[0, payne.labels.index("Fe")]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
             elif label == 'Fe':
                 print(f'[{label}/H]\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
             else:
                 print(f'{label}\t = {unscaled_stellar_labels[0, i]:.2f} ({optimizer.stellar_labels[0, i]:.2f})')
         print(f'RV\t = {optimizer.rv.item():.2f} ({payne.rv_scale} km/s)')
-        print(f'vmacro\t = {optimizer.vmacro.item():.2f} (km/s)')
+        if optimizer.vmacro is not None:
+            print(f'vmacro\t = {optimizer.vmacro.item():.2f} (km/s)')
+        if optimizer.vsini is not None:
+            print(f'vsini\t = {optimizer.vsini.item():.2f} (km/s)')
+        if optimizer.inst_res is not None:
+            print(f'inst_res\t = {optimizer.inst_res.item():.2f} (km/s)')
         
         # Save Labels & Fits
         optim_fit = {
             'stellar_labels': torch.clone(optimizer.stellar_labels).detach(),
             'rv': torch.clone(optimizer.rv).detach(),
-            'vmacro': torch.clone(optimizer.vmacro).detach(),
+            'vmacro': torch.clone(optimizer.vmacro).detach() if optimizer.vmacro is not None else None,
+            'vsini': torch.clone(optimizer.vsini).detach() if optimizer.vsini is not None else None,
+            'inst_res': torch.clone(optimizer.inst_res).detach() if optimizer.inst_res is not None else None,
             'cont_coeffs': torch.clone(torch.stack(optimizer.cont_coeffs)).detach(),
             'obs_wave': torch.clone(optimizer.obs_wave).detach(),
             'obs_flux': torch.clone(optimizer.obs_flux).detach(),
@@ -411,21 +495,24 @@ def main(args):
             'mod_errs': torch.clone(optimizer.best_model_errs).detach(),
         }
         np.savez(
-            fits_dir.joinpath(f'{name}_fit.npz'),
+            fits_dir.joinpath(f'{name}_fit_{args.resolution}.npz'),
             **optim_fit
         )
-        
+
         # Plot Convergence
         if args.plot:
-            n_panels = len(optim_fit) + payne.n_cont_coeffs
+            n_panels = payne.n_cont_coeffs + 2 + np.sum(
+                [optim_fit[key] is not None for key in ['rv', 'vmacro', 'vsini', 'inst_res']])
+            panel = 0
             fig = plt.figure(figsize=(10, n_panels * 2))
             gs = GridSpec(n_panels, 1)
             gs.update(hspace=0.0)
-            ax0 = plt.subplot(gs[0, 0])
+            ax0 = plt.subplot(gs[panel, 0])
             ax0.plot(optimizer.history['loss'], label='loss')
             ax0.legend()
             ax0.set_yscale('log')
-            ax1 = plt.subplot(gs[1, 0])
+            panel += 1
+            ax1 = plt.subplot(gs[panel, 0], sharex=ax0)
             for i in range(optimizer.n_stellar_labels):
                 ax1.plot(
                     torch.cat(optimizer.history['stellar_labels'])[:, i],
@@ -434,23 +521,42 @@ def main(args):
                 )
             ax1.set_ylim(-0.6, 0.6)
             ax1.legend(ncol=payne.n_stellar_labels, loc='lower center', fontsize=6)
-            ax2 = plt.subplot(gs[2, 0])
+            panel += 1
+            ax2 = plt.subplot(gs[panel, 0], sharex=ax0)
             ax2.plot(np.array(optimizer.history['rv']), label='rv')
             ax2.legend()
-            ax3 = plt.subplot(gs[3, 0])
-            ax3.plot(np.array(optimizer.history['vmacro']), label='vmacro')
-            ax3.legend()
+            panel += 1
+            if optimizer.vmacro is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['vmacro']), label='vmacro')
+                ax.legend()
+                panel += 1
+            if optimizer.vsini is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['vsini']), label='vsini')
+                ax.legend()
+                panel += 1
+            if optimizer.inst_res is not None:
+                ax = plt.subplot(gs[panel, 0])
+                ax.plot(np.array(optimizer.history['inst_res']), label='inst_res')
+                ax.legend()
+                panel += 1
             cont_coeffs = torch.stack(optimizer.history['cont_coeffs'])
             for i in range(optimizer.n_cont_coeffs):
-                ax = plt.subplot(gs[4 + i, 0])
+                ax = plt.subplot(gs[panel, 0])
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
-            plt.savefig(fig_dir.joinpath(f'{name}_convergence.png'))
+                panel += 1
+            plt.savefig(fig_dir.joinpath(f'{name}_convergence_{args.resolution}.png'))
         
         # Plot Fits
         if args.plot:
-            chi2 = ((optimizer.best_model[0].detach().numpy() - obs['spec']) / (
-                np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['errs'] ** 2))) ** 2
+            if args.resolution == "default":
+                chi2 = ((optimizer.best_model[0].detach().numpy() - obs['spec']) / (
+                    np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['errs'] ** 2))) ** 2
+            else:
+                chi2 = ((optimizer.best_model[0].detach().numpy() - obs['conv_spec']) / (
+                    np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['conv_errs'] ** 2))) ** 2
             for i in range(optimizer.n_obs_ord):
                 fig = plt.figure(figsize=(50, 12))
                 gs = GridSpec(2, 1)
@@ -458,10 +564,14 @@ def main(args):
                 ax1 = plt.subplot(gs[0, 0])
                 ax2 = plt.subplot(gs[1, 0], sharex=ax1)
         
-                plt.title(f"{'K431_971'}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}", fontsize=48)
-                ax1.scatter(obs['wave'][i][obs['mask'][i]], obs['spec'][i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                plt.title(f"{name}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}, Resolution: {args.resolution}", fontsize=48)
+                if args.resolution == "default":
+                    ax1.scatter(obs['wave'][i][obs['mask'][i]], obs['spec'][i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                    ax2.scatter(obs['wave'][i][obs['mask'][i]], chi2[i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
+                else:
+                    ax1.scatter(obs['wave'][i][obs['conv_mask'][i]], obs['conv_spec'][i][obs['conv_mask'][i]], c='k', marker='.', alpha=0.8, )
+                    ax2.scatter(obs['wave'][i][obs['conv_mask'][i]], chi2[i][obs['conv_mask'][i]], c='k', marker='.', alpha=0.8, )
                 ax1.plot(obs['wave'][i], optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
-                ax2.scatter(obs['wave'][i][obs['mask'][i]], chi2[i][obs['mask'][i]], c='k', marker='.', alpha=0.8, )
                 ax1.set_ylabel('Flux [Counts]', fontsize=36)
                 ax2.set_ylabel('Chi2', fontsize=36)
                 ax2.set_xlabel('Wavelength [A]', fontsize=36)
@@ -469,6 +579,6 @@ def main(args):
                 ax1.tick_params('y', labelsize=36)
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
-                plt.savefig(fig_dir.joinpath(f"{name}_spec_{int(obs['ords'][i])}.png"))
+                plt.savefig(fig_dir.joinpath(f"{name}_spec_{args.resolution}_{int(obs['ords'][i])}.png"))
 
         print(f'Completed Fit for {name}')
