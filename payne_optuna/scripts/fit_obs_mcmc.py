@@ -467,7 +467,8 @@ def main(args):
 
     def gaussian_log_prior(x, mu, sigma):
         return np.sum(
-            np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2
+            np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2,
+            axis=-1,
         )
 
     def uniform_log_prior(theta, theta_min, theta_max):
@@ -532,7 +533,7 @@ def main(args):
         autocorr[index] = np.mean(tau)
         print(
             f"{args.obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
-            f"t/100Tau = {sampler.iteration/(30*np.max(tau)):.2f}, " +
+            f"t/30Tau = {sampler.iteration/(30*np.max(tau)):.2f}, " +
             f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
         index += 1
