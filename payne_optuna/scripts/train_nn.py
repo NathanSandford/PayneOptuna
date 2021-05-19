@@ -39,6 +39,7 @@ def main(args):
         output_dir: /PATH/TO/DIRECTORY/OF/MODELS
         spectra_file: training_spectra_and_labels.h5
     training:
+        big_dataset: False
         labels:
         - List
         - Of
@@ -46,6 +47,7 @@ def main(args):
         - To
         - Train
         - On
+        iron_scale: False
         learning_rate: 0.0001
         optimizer: RAdam
         train_fraction: 0.8
@@ -71,7 +73,6 @@ def main(args):
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
     input_dir = Path(configs["paths"]["input_dir"])
-    input_file = input_dir.joinpath(configs["paths"]["spectra_file"])
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
@@ -79,6 +80,11 @@ def main(args):
     logger_dir = output_dir.joinpath("tb_logs")
     if not model_dir.is_dir():
         model_dir.mkdir()
+    big_dataset = configs["training"]["big_dataset"]
+    if big_dataset:
+        input_path = input_dir
+    else:
+        input_path = input_dir.joinpath(configs["paths"]["spectra_file"])
 
     # Initialize Callbacks
     metrics_callback = MetricsCallback(["train-loss", "val-loss"])
@@ -128,13 +134,15 @@ def main(args):
 
     # Initialize DataModule
     datamodule = PayneDataModule(
-        input_file=input_file,
+        input_path=input_path,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
+        iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
         pin_memory=False,
+        big_dataset=big_dataset,
     )
     datamodule.setup()
     datamodule.save_training_meta(meta_file)

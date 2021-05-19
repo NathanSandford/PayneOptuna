@@ -65,14 +65,19 @@ class Objective:
         self.configs = configs
         self.model_name = configs["name"]
         self.input_dir = Path(configs["paths"]["input_dir"])
-        self.input_file = self.input_dir.joinpath(configs["paths"]["spectra_file"])
         self.output_dir = Path(configs["paths"]["output_dir"])
         self.model_dir = self.output_dir.joinpath(self.model_name)
         self.logger_dir = self.output_dir.joinpath("tb_logs")
         if not self.model_dir.is_dir():
             self.model_dir.mkdir()
+        self.big_dataset = configs["training"]["big_dataset"]
+        if self.big_dataset:
+            input_path = self.input_dir
+        else:
+            input_path = self.input_dir.joinpath(configs["paths"]["spectra_file"])
 
         self.labels_to_train_on = configs["training"]["labels"]
+        self.iron_scale = configs["training"]["iron_scale"]
         self.train_fraction = configs["training"]["train_fraction"]
         self.batchsize = configs["training"]["batchsize"]
         self.epochs = configs["training"]["epochs"]
@@ -133,13 +138,14 @@ class Objective:
 
         # Initialize DataModule
         datamodule = PayneDataModule(
-            input_file=self.input_file,
+            input_path=self.input_path,
             labels_to_train_on=self.labels_to_train_on,
             train_fraction=self.train_fraction,
             batchsize=self.batchsize,
             dtype=self.dtype,
             num_workers=0,
             pin_memory=False,
+            big_dataset=self.big_dataset,
         )
         datamodule.setup()
         self.input_dim = datamodule.input_dim
@@ -204,6 +210,7 @@ def main(args):
         output_dir: /PATH/TO/DIRECTORY/OF/MODELS
         spectra_file: training_spectra_and_labels.h5
     training:
+        big_dataset: False
         labels:
         - List
         - Of
@@ -211,6 +218,7 @@ def main(args):
         - To
         - Train
         - On
+        iron_scale: False
         learning_rate: 0.0001
         optimizer: RAdam
         train_fraction: 0.8
