@@ -314,8 +314,8 @@ class PayneEmulator:
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
                 wave=self.mod_wave,
-                flux=norm_flux,
-                errs=self.mod_errs,
+                flux=conv_flux,
+                errs=conv_errs,
                 vsini=vsini,
             )
         # RV Shift
@@ -562,8 +562,8 @@ class CompositePayneEmulator(torch.nn.Module):
             if vsini is not None:
                 conv_flux, conv_errs = self.rot_broaden(
                     wave=self.mod_wave[i],
-                    flux=norm_flux,
-                    errs=self.mod_errs[i],
+                    flux=conv_flux,
+                    errs=conv_errs,
                     vsini=vsini,
                 )
             # RV Shift
@@ -643,24 +643,24 @@ class PayneOptimizer:
 
     def prefit_rv(
             self,
-            vmacro0=None,
-            vsini0=None,
+            log_vmacro0=None,
+            log_vsini0=None,
             inst_res0=None,
             rv_range=(-3, 3),
             n_rv=301,
             plot=False,
     ):
         stellar_labels0 = torch.zeros(1, self.n_stellar_labels)
-        vmacro0 = ensure_tensor(vmacro0) if vmacro0 is not None else None
-        vsini0 = ensure_tensor(vsini0) if vsini0 is not None else None
+        log_vmacro0 = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        log_vsini0 = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
         inst_res0 = ensure_tensor(inst_res0) if inst_res0 is not None else None
         rv0 = torch.linspace(rv_range[0], rv_range[1], n_rv)
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
             rv=rv0,
             cont_coeffs=self.c_flat,
-            vmacro=vmacro0,
-            vsini=vsini0,
+            vmacro=10**log_vmacro0,
+            vsini=10**log_vsini0,
             inst_res=inst_res0,
         )
         loss0 = self.loss_fn(
@@ -677,22 +677,22 @@ class PayneOptimizer:
 
     def prefit_cont(
         self,
-        vmacro0=None,
-        vsini0=None,
+        log_vmacro0=None,
+        log_vsini0=None,
         inst_res0=None,
         plot=False,
     ):
         stellar_labels0 = torch.zeros(1, self.n_stellar_labels)
-        vmacro0 = ensure_tensor(vmacro0) if vmacro0 is not None else None
-        vsini0 = ensure_tensor(vsini0) if vsini0 is not None else None
+        log_vmacro0 = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        log_vsini0 = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
         inst_res0 = ensure_tensor(inst_res0) if inst_res0 is not None else None
         rv0 = self.rv
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
             rv=rv0,
             cont_coeffs=self.c_flat,
-            vmacro=vmacro0,
-            vsini=vsini0,
+            vmacro=10**log_vmacro0,
+            vsini=10**log_vsini0,
             inst_res=inst_res0,
         )
         c0 = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
@@ -745,10 +745,10 @@ class PayneOptimizer:
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
             rv=self.rv,
-            vmacro=self.vmacro,
+            vmacro=10**self.log_vmacro,
             cont_coeffs=torch.stack(self.cont_coeffs),
             inst_res=self.inst_res,
-            vsini=self.vsini,
+            vsini=10**self.log_vsini,
         )
         return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
 
@@ -761,16 +761,16 @@ class PayneOptimizer:
             params=dict(
                 stellar_labels='fit',
                 rv='fit',
-                vmacro='const',
-                vsini='const',
+                log_vmacro='const',
+                log_vsini='const',
                 inst_res='const',
                 cont_coeffs='fit',
             ),
             init_params=dict(
                 stellar_labels=torch.zeros(1,12),
                 rv='prefit',
-                vmacro=None,
-                vsini=None,
+                log_vmacro=None,
+                log_vsini=None,
                 inst_res=None,
                 cont_coeffs='prefit'
             ),
@@ -844,28 +844,28 @@ class PayneOptimizer:
                 self.stellar_labels = self.init_params['stellar_labels'].requires_grad_()
             else:
                 self.stellar_labels = self.init_params['stellar_labels']
-        if self.init_params['vmacro'] == 'prefit':
-            if self.params['vmacro'] == 'fit':
-                self.vmacro = self.prefit_vmacro(plot=plot_prefits).requires_grad_()
+        if self.init_params['log_vmacro'] == 'prefit':
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits).requires_grad_()
             else:
-                self.vmacro = self.prefit_vmacro(plot=plot_prefits)
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits)
         else:
-            if self.params['vmacro'] == 'fit':
-                self.vmacro = self.init_params['vmacro'].requires_grad_() if self.init_params[
-                                                                                 'vmacro'] is not None else None
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.init_params['log_vmacro'].requires_grad_() if self.init_params[
+                                                                                 'log_vmacro'] is not None else None
             else:
                 self.vmacro = self.init_params['vmacro'] if self.init_params['vmacro'] is not None else None
-        if self.init_params['vsini'] == 'prefit':
-            if self.params['vsini'] == 'fit':
-                self.vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
+        if self.init_params['log_vsini'] == 'prefit':
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
             else:
-                self.vsini = self.prefit_vsini(plot=plot_prefits)
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits)
         else:
-            if self.params['vsini'] == 'fit':
-                self.vsini = self.init_params['vsini'].requires_grad_() if self.init_params[
-                                                                               'vsini'] is not None else None
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.init_params['log_vsini'].requires_grad_() if self.init_params[
+                                                                               'log_vsini'] is not None else None
             else:
-                self.vsini = self.init_params['vsini'] if self.init_params['vsini'] is not None else None
+                self.log_vsini = self.init_params['log_vsini'] if self.init_params['log_vsini'] is not None else None
 
         # Initialize Optimizer & Learning Rate Scheduler
         optim_params = []
@@ -878,14 +878,14 @@ class PayneOptimizer:
             optim_params.append({'params': [self.rv], 'lr': self.learning_rates['rv']})
             lr_lambdas.append(
                 lambda epoch: self.learning_rate_decay['rv'] ** (epoch // self.learning_rate_decay_ts['rv']))
-        if self.params['vmacro'] == 'fit':
-            optim_params.append({'params': [self.vmacro], 'lr': self.learning_rates['vmacro']})
-            lr_lambdas.append(lambda epoch: self.learning_rate_decay['vmacro'] ** (
-                        epoch // self.learning_rate_decay_ts['vmacro']))
-        if self.params['vsini'] == 'fit':
-            optim_params.append({'params': [self.vsini], 'lr': self.learning_rates['vsini']})
-            lr_lambdas.append(lambda epoch: self.learning_rate_decay['vsini'] ** (
-                        epoch // self.learning_rate_decay_ts['vsini']))
+        if self.params['log_vmacro'] == 'fit':
+            optim_params.append({'params': [self.log_vmacro], 'lr': self.learning_rates['log_vmacro']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vmacro'] ** (
+                        epoch // self.learning_rate_decay_ts['log_vmacro']))
+        if self.params['log_vsini'] == 'fit':
+            optim_params.append({'params': [self.log_vsini], 'lr': self.learning_rates['log_vsini']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vsini'] ** (
+                        epoch // self.learning_rate_decay_ts['log_vsini']))
         if self.params['inst_res'] == 'fit':
             optim_params.append({'params': [self.inst_res], 'lr': self.learning_rates['inst_res']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['inst_res'] ** (
@@ -912,20 +912,20 @@ class PayneOptimizer:
         self.loss = ensure_tensor(np.inf)
         delta_loss = ensure_tensor(np.inf)
         delta_stellar_labels = ensure_tensor(np.inf)
-        delta_vmacro = ensure_tensor(np.inf)
+        delta_log_vmacro = ensure_tensor(np.inf)
         delta_rv = ensure_tensor(np.inf)
         delta_inst_res = ensure_tensor(np.inf)
-        delta_vsini = ensure_tensor(np.inf)
+        delta_log_vsini = ensure_tensor(np.inf)
         delta_frac_weighted_cont = ensure_tensor(np.inf)
         last_cont = torch.zeros_like(self.obs_blaz)
 
         # Initialize History
         self.history = dict(
             stellar_labels=[],
-            vmacro=[],
+            log_vmacro=[],
             rv=[],
             inst_res=[],
-            vsini=[],
+            log_vsini=[],
             cont_coeffs=[],
             loss=[]
         )
@@ -935,10 +935,10 @@ class PayneOptimizer:
                 and (
                         (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
                         or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
-                        or (delta_vmacro.abs() > self.tolerances['d_vmacro'])
+                        or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
                         or (delta_rv.abs() > self.tolerances['d_rv'])
                         or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
-                        or (delta_vsini.abs() > self.tolerances['d_vsini'])
+                        or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
                 )
                 and (
                         delta_loss.abs() > self.tolerances['d_loss']
@@ -961,18 +961,18 @@ class PayneOptimizer:
             self.loss = loss_epoch.item()
             self.history['stellar_labels'].append(torch.clone(self.stellar_labels).detach())
             self.history['rv'].append(torch.clone(self.rv))
-            if self.vmacro is None:
-                self.history['vmacro'].append(None)
+            if self.log_vmacro is None:
+                self.history['log_vmacro'].append(None)
             else:
-                self.history['vmacro'].append(torch.clone(self.vmacro))
+                self.history['log_vmacro'].append(torch.clone(self.log_vmacro))
             if self.inst_res is None:
                 self.history['inst_res'].append(None)
             else:
                 self.history['inst_res'].append(torch.clone(self.inst_res))
-            if self.vsini is None:
-                self.history['vsini'].append(None)
+            if self.log_vsini is None:
+                self.history['log_vsini'].append(None)
             else:
-                self.history['vsini'].append(torch.clone(self.vsini))
+                self.history['log_vsini'].append(torch.clone(self.log_vsini))
             self.history['cont_coeffs'].append(torch.clone(torch.stack(self.cont_coeffs)).detach())
             self.history['loss'].append(self.loss)
 
@@ -987,10 +987,10 @@ class PayneOptimizer:
                 self.stellar_labels.clamp_(min=-0.55, max=0.55)
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
-                if self.vmacro is not None:
-                    self.vmacro.clamp_(min=1e-3, max=15.0)
-                if self.vsini is not None:
-                    self.vsini.clamp_(min=0.0, max=np.inf)
+                if self.log_vmacro is not None:
+                    self.log_vmacro.clamp_(min=-3.0, max=1.5)
+                if self.log_vsini is not None:
+                    self.log_vsini.clamp_(min=-1.0, max=2.5)
                 if self.inst_res is not None:
                     self.inst_res.clamp_(
                         min=100,
@@ -999,10 +999,10 @@ class PayneOptimizer:
 
             # Check Convergence
             delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
-            delta_vmacro = ensure_tensor(0) if self.vmacro is None else self.vmacro - self.history['vmacro'][-1]
+            delta_log_vmacro = ensure_tensor(0) if self.log_vmacro is None else self.log_vmacro - self.history['log_vmacro'][-1]
             delta_rv = self.rv - self.history['rv'][-1]
             delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
-            delta_vsini = ensure_tensor(0) if self.vsini is None else self.vsini - self.history['vsini'][-1]
+            delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - self.history['log_vsini'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
             if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
@@ -1035,10 +1035,10 @@ class PayneOptimizer:
 
         # Recover Best Epoch
         self.stellar_labels = self.history['stellar_labels'][np.argmin(self.history['loss'])]
-        self.vmacro = self.history['vmacro'][np.argmin(self.history['loss'])]
+        self.log_vmacro = self.history['log_vmacro'][np.argmin(self.history['loss'])]
         self.rv = self.history['rv'][np.argmin(self.history['loss'])]
         self.inst_res = self.history['inst_res'][np.argmin(self.history['loss'])]
-        self.vsini = self.history['vsini'][np.argmin(self.history['loss'])]
+        self.log_vsini = self.history['log_vsini'][np.argmin(self.history['loss'])]
         self.cont_coeffs = [self.history['cont_coeffs'][np.argmin(self.history['loss'])][i] for i in
                             range(self.n_cont_coeffs)]
         self.loss = np.min(self.history['loss'])
@@ -1052,12 +1052,12 @@ class PayneOptimizer:
             print('d_stellar_labels tolerance reached')
         if not delta_rv.abs().max() > self.tolerances['d_rv']:
             print('d_rv tolerance reached')
-        if not delta_vmacro.abs().max() > self.tolerances['d_vmacro'] and self.vmacro is not None and verbose:
-            print('d_vmacro tolerance reached')
+        if not delta_log_vmacro.abs().max() > self.tolerances['d_log_vmacro'] and self.log_vmacro is not None and verbose:
+            print('d_log_vmacro tolerance reached')
         if not delta_inst_res.abs().max() > self.tolerances['d_inst_res'] and self.inst_res is not None :
             print('d_inst_res tolerance reached')
-        if not delta_vsini.abs().max() > self.tolerances['d_vsini'] and self.vsini is not None :
-            print('d_vsini tolerance reached')
+        if not delta_log_vsini.abs().max() > self.tolerances['d_log_vsini'] and self.log_vsini is not None :
+            print('d_log_vsini tolerance reached')
         if not delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont']:
             print('d_cont tolerance reached')
         if not delta_loss.abs() > self.tolerances['d_loss']:
