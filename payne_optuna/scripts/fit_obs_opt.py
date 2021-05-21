@@ -560,12 +560,12 @@ def main(args):
                 ax2.plot(np.array(optimizer.history['rv']), label='rv')
                 ax2.legend()
                 panel += 1
-                if optimizer.vmacro is not None:
+                if optimizer.log_vmacro is not None:
                     ax = plt.subplot(gs[panel, 0])
                     ax.plot(np.array(optimizer.history['log_vmacro']), label='log_vmacro')
                     ax.legend()
                     panel += 1
-                if optimizer.vsini is not None:
+                if optimizer.log_vsini is not None:
                     ax = plt.subplot(gs[panel, 0])
                     ax.plot(np.array(optimizer.history['log_vsini']), label='log_vsini')
                     ax.legend()
