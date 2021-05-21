@@ -314,8 +314,8 @@ class PayneEmulator:
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
                 wave=self.mod_wave,
-                flux=norm_flux,
-                errs=self.mod_errs,
+                flux=conv_flux,
+                errs=conv_errs,
                 vsini=vsini,
             )
         # RV Shift
