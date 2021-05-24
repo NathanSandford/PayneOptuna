@@ -213,10 +213,13 @@ class SpectraHDF5BigDataset(Dataset):
             virtual_layout_labels[offset: offset + length] = sources_labels[i]
             offset += length
         virtual_layout_wavelength[:] = vsource_wavelength
-        with h5py.File(self.virtual_dataset, 'w', libver='latest') as f:
-            f.create_virtual_dataset('spectra', virtual_layout_spectra, fillvalue=-999)
-            f.create_virtual_dataset('labels', virtual_layout_labels, fillvalue=-999)
-            f.create_virtual_dataset('wavelength', virtual_layout_wavelength, fillvalue=-999)
+        try:
+            with h5py.File(self.virtual_dataset, 'w', libver='latest') as f:
+                f.create_virtual_dataset('spectra', virtual_layout_spectra, fillvalue=-999)
+                f.create_virtual_dataset('labels', virtual_layout_labels, fillvalue=-999)
+                f.create_virtual_dataset('wavelength', virtual_layout_wavelength, fillvalue=-999)
+        except OSError:
+            pass
 
     def load_virtual_dataset(self):
         h5_file = h5py.File(self.virtual_dataset, "r")
