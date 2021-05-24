@@ -97,7 +97,8 @@ class Objective:
         # Initialize Callbacks
         metrics_callback = MetricsCallback(["train-loss", "val-loss"])
         checkpoint_callback = CheckpointCallback(
-            filepath=ckpt_dir.joinpath("{epoch:05d}-{val-loss:.2f}"),
+            dirpath=ckpt_dir,
+            filename="{epoch:05d}-{val-loss:.2f}",
             monitor="val-loss",
             mode="min",
             period=1,
@@ -141,6 +142,7 @@ class Objective:
             input_path=self.input_path,
             labels_to_train_on=self.labels_to_train_on,
             train_fraction=self.train_fraction,
+            iron_scale=self.iron_scale,
             batchsize=self.batchsize,
             dtype=self.dtype,
             num_workers=0,
