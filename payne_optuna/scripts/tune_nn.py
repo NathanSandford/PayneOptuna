@@ -72,9 +72,9 @@ class Objective:
             self.model_dir.mkdir()
         self.big_dataset = configs["training"]["big_dataset"]
         if self.big_dataset:
-            input_path = self.input_dir
+            self.input_path = self.input_dir
         else:
-            input_path = self.input_dir.joinpath(configs["paths"]["spectra_file"])
+            self.input_path = self.input_dir.joinpath(configs["paths"]["spectra_file"])
 
         self.labels_to_train_on = configs["training"]["labels"]
         self.iron_scale = configs["training"]["iron_scale"]
