@@ -239,6 +239,11 @@ def main(args):
             interval_steps: 1
     """
 
+    # Set Tensor Type
+    dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+    #torch.set_default_tensor_type(dtype)
+    print(f'Default tensor type: {dtype}')
+
     # Load Configs
     with open(args.config_file) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
