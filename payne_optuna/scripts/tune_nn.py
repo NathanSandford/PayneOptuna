@@ -87,7 +87,7 @@ class Objective:
         self.dtype = (
             torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
         )
-        torch.set_default_tensor_type(self.dtype)
+        #torch.set_default_tensor_type(self.dtype)
 
     def __call__(self, trial: optuna.trial.Trial) -> float:
         # Set Paths
@@ -240,9 +240,9 @@ def main(args):
     """
 
     # Set Tensor Type
-    dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
+    #dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     #torch.set_default_tensor_type(dtype)
-    print(f'Default tensor type: {dtype}')
+    #print(f'Default tensor type: {dtype}')
 
     # Load Configs
     with open(args.config_file) as file:
