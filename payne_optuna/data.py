@@ -303,14 +303,15 @@ class PayneDataModule(pl.LightningDataModule):
             )
             n_train = int(len(dataset) * self.train_fraction)
             n_valid = int(len(dataset) - n_train)
-            try:
-                self.training_dataset, self.validation_dataset = random_split(
-                    dataset, [n_train, n_valid], generator=torch.Generator(device='cpu'),
-                )
-            except RuntimeError:
-                self.training_dataset, self.validation_dataset = random_split(
-                    dataset, [n_train, n_valid], generator=torch.Generator(device='cuda:0'),
-                )
+            self.training_dataset, self.validation_dataset = random_split(dataset, [n_train, n_valid])
+            #try:
+            #    self.training_dataset, self.validation_dataset = random_split(
+            #        dataset, [n_train, n_valid], generator=torch.Generator(device='cpu'),
+            #    )
+            #except RuntimeError:
+            #    self.training_dataset, self.validation_dataset = random_split(
+            #        dataset, [n_train, n_valid], generator=torch.Generator(device='cuda:0'),
+            #    )
             self.input_dim = len(self.training_dataset[0]["labels"])
             self.output_dim = len(self.training_dataset[0]["spectrum"])
             self.x_min = dataset.x_min
@@ -329,14 +330,15 @@ class PayneDataModule(pl.LightningDataModule):
             )
             n_train = int(len(dataset) * self.train_fraction)
             n_valid = int(len(dataset) - n_train)
-            try:
-                self.training_dataset, self.validation_dataset = random_split(
-                    dataset, [n_train, n_valid], generator=torch.Generator(device='cpu'),
-                )
-            except RuntimeError:
-                self.training_dataset, self.validation_dataset = random_split(
-                    dataset, [n_train, n_valid], generator=torch.Generator(device='cuda:0'),
-                )
+            self.training_dataset, self.validation_dataset = random_split(dataset, [n_train, n_valid])
+            #try:
+            #    self.training_dataset, self.validation_dataset = random_split(
+            #        dataset, [n_train, n_valid], generator=torch.Generator(device='cpu'),
+            #    )
+            #except RuntimeError:
+            #    self.training_dataset, self.validation_dataset = random_split(
+            #        dataset, [n_train, n_valid], generator=torch.Generator(device='cuda:0'),
+            #    )
             self.input_dim = dataset.labels.shape[1]
             self.output_dim = dataset.spectra.shape[1]
             self.x_min = dataset.x_min
