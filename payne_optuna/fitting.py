@@ -745,10 +745,10 @@ class PayneOptimizer:
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
             rv=self.rv,
-            vmacro=10**self.log_vmacro,
+            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
             cont_coeffs=torch.stack(self.cont_coeffs),
             inst_res=self.inst_res,
-            vsini=10**self.log_vsini,
+            vsini=None if self.log_vsini is None else 10**self.log_vsini,
         )
         return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
 
