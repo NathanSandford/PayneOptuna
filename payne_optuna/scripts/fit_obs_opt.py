@@ -468,7 +468,7 @@ def main(args):
                     ensure_tensor(payne.model_res)
                 )
             else:
-                inst_res0 = ensure_tensor(payne.model_res) if args.resolution == 'default' else ensure_tensor(int(args.resolution))
+                inst_res0 = None if args.resolution == 'default' else ensure_tensor(int(args.resolution))
             # Begin Fit
             optimizer.fit(
                 obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
@@ -544,7 +544,7 @@ def main(args):
             # Plot Convergence
             if args.plot:
                 n_panels = payne.n_cont_coeffs + 2 + np.sum(
-                    [optim_fit[key] is not None for key in ['rv', 'vmacro', 'vsini', 'inst_res']])
+                    [optim_fit[key] is not None for key in ['rv', 'log_vmacro', 'log_vsini', 'inst_res']])
                 panel = 0
                 fig = plt.figure(figsize=(10, n_panels * 2))
                 gs = GridSpec(n_panels, 1)
