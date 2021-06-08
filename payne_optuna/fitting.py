@@ -13,6 +13,46 @@ def mse_loss(pred, target, pred_errs, target_errs):
     return torch.mean(((pred - target) / total_errs) ** 2, axis=[1, 2])
 
 
+class UniformLogPrior:
+    def __init__(self, label, lower_bound, upper_bound):
+        self.label = label
+        self.lower_bound = ensure_tensor(lower_bound)
+        self.upper_bound = ensure_tensor(upper_bound)
+
+    def __call__(self, x):
+        log_prior = torch.zeros_like(x)
+        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = -np.inf
+        return log_prior
+
+
+class GaussianLogPrior:
+    def __init__(self, label, mu, sigma):
+        self.label = label
+        self.mu = ensure_tensor(mu)
+        self.sigma = ensure_tensor(sigma)
+
+    def __call__(self, x):
+        return torch.log(1.0 / (np.sqrt(2 * np.pi) * self.sigma)) - 0.5 * (x - self.mu) ** 2 / self.sigma ** 2
+
+
+class FlatLogPrior:
+    def __init__(self, label):
+        self.label = label
+
+    def __call__(self, x):
+        return torch.zeros_like(x)
+
+
+def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
+    tot_vars = pred_errs ** 2 + target_errs ** 2
+    loglike = -0.5 * (
+            torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
+    )
+    mask = torch.isfinite(loglike)
+    loglike[..., ~mask] = 0  # Cludgy masking
+    return torch.sum(loglike, axis=[1, 2])
+
+
 class PayneEmulator:
     def __init__(
         self,
@@ -450,7 +490,7 @@ class CompositePayneEmulator(torch.nn.Module):
         inv_res_grid = torch.diff(torch.log(wave))
         dx = torch.median(inv_res_grid)
         ss = torch.fft.rfftfreq(wave.shape[-1], d=dx)
-        sigma_ = sigma.repeat(ss.shape[0]).view(ss.shape[0], -1).T
+        sigma_ = sigma.repeat(sigma.shape[0], ss.shape[0]).view(ss.shape[0], -1).T
         ss_ = ss.repeat(1, sigma.shape[0]).view(sigma.shape[0], -1)
         kernel = torch.exp(-2 * (np.pi ** 2) * (sigma_ ** 2) * (ss_ ** 2))
         flux_ff = torch.fft.rfft(flux)
@@ -562,8 +602,8 @@ class CompositePayneEmulator(torch.nn.Module):
             if vsini is not None:
                 conv_flux, conv_errs = self.rot_broaden(
                     wave=self.mod_wave[i],
-                    flux=norm_flux,
-                    errs=self.mod_errs[i],
+                    flux=conv_flux,
+                    errs=conv_errs,
                     vsini=vsini,
                 )
             # RV Shift
@@ -641,168 +681,7 @@ class PayneOptimizer:
         self.n_cont_coeffs = self.cont_deg + 1
         self.cont_wave_norm_range = self.emulator.cont_wave_norm_range
 
-    def prefit_rv(
-            self,
-            vmacro0=None,
-            vsini0=None,
-            inst_res0=None,
-            rv_range=(-3, 3),
-            n_rv=301,
-            plot=False,
-    ):
-        stellar_labels0 = torch.zeros(1, self.n_stellar_labels)
-        vmacro0 = ensure_tensor(vmacro0) if vmacro0 is not None else None
-        vsini0 = ensure_tensor(vsini0) if vsini0 is not None else None
-        inst_res0 = ensure_tensor(inst_res0) if inst_res0 is not None else None
-        rv0 = torch.linspace(rv_range[0], rv_range[1], n_rv)
-        mod_flux, mod_errs = self.emulator(
-            stellar_labels=stellar_labels0,
-            rv=rv0,
-            cont_coeffs=self.c_flat,
-            vmacro=vmacro0,
-            vsini=vsini0,
-            inst_res=inst_res0,
-        )
-        loss0 = self.loss_fn(
-            pred=mod_flux * self.obs_blaz,
-            target=self.obs_flux,
-            pred_errs=mod_errs * self.obs_blaz,
-            target_errs=self.obs_errs,
-        )
-        if plot:
-            plt.plot(rv0, loss0.detach().numpy(), c='k')
-            plt.axvline(rv0[loss0.argmin()].unsqueeze(0).detach().numpy(), c='r')
-            plt.show()
-        return rv0[loss0.argmin()].unsqueeze(0)
-
-    def prefit_cont(
-        self,
-        vmacro0=None,
-        vsini0=None,
-        inst_res0=None,
-        plot=False,
-    ):
-        stellar_labels0 = torch.zeros(1, self.n_stellar_labels)
-        vmacro0 = ensure_tensor(vmacro0) if vmacro0 is not None else None
-        vsini0 = ensure_tensor(vsini0) if vsini0 is not None else None
-        inst_res0 = ensure_tensor(inst_res0) if inst_res0 is not None else None
-        rv0 = self.rv
-        mod_flux, mod_errs = self.emulator(
-            stellar_labels=stellar_labels0,
-            rv=rv0,
-            cont_coeffs=self.c_flat,
-            vmacro=vmacro0,
-            vsini=vsini0,
-            inst_res=inst_res0,
-        )
-        c0 = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
-        footprint = np.concatenate([np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
-        tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz)**2 + self.obs_errs**2)
-        mask = torch.isfinite(tot_errs)
-        scaling = self.obs_flux / (mod_flux[0] * self.obs_blaz)
-        for i in range(self.n_obs_ord):
-            filtered_scaling = percentile_filter(scaling[i].detach().numpy(), percentile=25, footprint=footprint)
-            filtered_scaling = percentile_filter(filtered_scaling, percentile=75, footprint=footprint)
-            filtered_scaling[~mask[i]] = 1.0
-            p = Polynomial.fit(
-                x=self.obs_norm_wave[i].detach().numpy(),
-                y=filtered_scaling,
-                deg=self.cont_deg,
-                w=(tot_errs[i]**-1).detach().numpy(),
-                window=self.cont_wave_norm_range
-            )
-            if plot:
-                plt.figure(figsize=(20,1))
-                plt.scatter(self.obs_wave[i][mask[i]].detach().numpy(), self.obs_flux[i][mask[i]].detach().numpy(), c='k', marker='.', alpha=0.8)
-                plt.plot(self.obs_wave[i].detach().numpy(), (mod_flux[0,i] * self.obs_blaz[i] * p(self.obs_norm_wave[i])).detach().numpy(), c='r', alpha=0.8)
-                plt.show()
-            c0[:, i] = ensure_tensor(p.coef)
-        return [c0[i] for i in range(self.n_cont_coeffs)]
-
-    def prefit_vmacro(self, plot=False):
-        raise NotImplementedError
-
-    def prefit_vsini(self, plot=False):
-        raise NotImplementedError
-
-    def prefit_inst_res(self, plot=False):
-        raise NotImplementedError
-
-    def prefit_stellar_labels(self, plot=False):
-        raise NotImplementedError
-
-    def holtzman2015(self, scaled_logg):
-        logg_min = np.array(list(self.emulator.models[0].x_min.values()))[1]
-        logg_max = np.array(list(self.emulator.models[0].x_max.values()))[1]
-        vmicro_min = np.array(list(self.emulator.models[0].x_min.values()))[2]
-        vmicro_max = np.array(list(self.emulator.models[0].x_max.values()))[2]
-        unscaled_logg = (scaled_logg + 0.5) * (logg_max - logg_min) + logg_min
-        unscaled_vmicro = 2.478 - 0.325*unscaled_logg
-        scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
-        return scaled_vmicro
-
-    def forward(self):
-        mod_flux, mod_errs = self.emulator(
-            stellar_labels=self.stellar_labels,
-            rv=self.rv,
-            vmacro=self.vmacro,
-            cont_coeffs=torch.stack(self.cont_coeffs),
-            inst_res=self.inst_res,
-            vsini=self.vsini,
-        )
-        return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
-
-    def fit(
-            self,
-            obs_flux,
-            obs_errs,
-            obs_wave,
-            obs_blaz=None,
-            params=dict(
-                stellar_labels='fit',
-                rv='fit',
-                vmacro='const',
-                vsini='const',
-                inst_res='const',
-                cont_coeffs='fit',
-            ),
-            init_params=dict(
-                stellar_labels=torch.zeros(1,12),
-                rv='prefit',
-                vmacro=None,
-                vsini=None,
-                inst_res=None,
-                cont_coeffs='prefit'
-            ),
-            max_epochs=1000,
-            prefit_cont_window=55,
-            use_holtzman2015=False,
-            verbose=False,
-            plot_prefits=False,
-            plot_fit_every=None,
-    ):
-        self.obs_flux = ensure_tensor(obs_flux)
-        self.obs_errs = ensure_tensor(obs_errs)
-        self.obs_snr = self.obs_flux / self.obs_errs
-        self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
-        self.obs_blaz = ensure_tensor(obs_blaz) if obs_blaz is not None else torch.ones_like(self.obs_flux)
-        if torch.all(self.obs_wave != self.emulator.obs_wave):
-            raise RuntimeError("obs_wave of Emulator and Optimizer differ!")
-        self.obs_norm_wave = self.emulator.obs_norm_wave
-        self.obs_wave_ = self.emulator.obs_wave_
-        self.n_obs_ord = self.obs_wave.shape[0]
-        self.n_obs_pix_per_ord = self.obs_wave.shape[0]
-
-        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
-        self.c_flat[0] = 1.0
-        self.prefit_cont_window = prefit_cont_window
-
-        self.use_holtzman2015 = use_holtzman2015
-
-        # Initialize Starting Values
-        # Initialize Starting Values
-        self.params = params
-        self.init_params = init_params
+    def init_values(self, plot_prefits=False):
         if self.init_params['inst_res'] == 'prefit':
             if self.params['inst_res'] == 'fit':
                 self.inst_res = self.prefit_inst_res(plot=plot_prefits).requires_grad_()
@@ -844,30 +723,135 @@ class PayneOptimizer:
                 self.stellar_labels = self.init_params['stellar_labels'].requires_grad_()
             else:
                 self.stellar_labels = self.init_params['stellar_labels']
-        if self.init_params['vmacro'] == 'prefit':
-            if self.params['vmacro'] == 'fit':
-                self.vmacro = self.prefit_vmacro(plot=plot_prefits).requires_grad_()
+        if self.init_params['log_vmacro'] == 'prefit':
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits).requires_grad_()
             else:
-                self.vmacro = self.prefit_vmacro(plot=plot_prefits)
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits)
         else:
-            if self.params['vmacro'] == 'fit':
-                self.vmacro = self.init_params['vmacro'].requires_grad_() if self.init_params[
-                                                                                 'vmacro'] is not None else None
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.init_params['log_vmacro'].requires_grad_() if self.init_params[
+                                                                                         'log_vmacro'] is not None else None
             else:
                 self.vmacro = self.init_params['vmacro'] if self.init_params['vmacro'] is not None else None
-        if self.init_params['vsini'] == 'prefit':
-            if self.params['vsini'] == 'fit':
-                self.vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
+        if self.init_params['log_vsini'] == 'prefit':
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
             else:
-                self.vsini = self.prefit_vsini(plot=plot_prefits)
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits)
         else:
-            if self.params['vsini'] == 'fit':
-                self.vsini = self.init_params['vsini'].requires_grad_() if self.init_params[
-                                                                               'vsini'] is not None else None
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.init_params['log_vsini'].requires_grad_() if self.init_params[
+                                                                                       'log_vsini'] is not None else None
             else:
-                self.vsini = self.init_params['vsini'] if self.init_params['vsini'] is not None else None
+                self.log_vsini = self.init_params['log_vsini'] if self.init_params['log_vsini'] is not None else None
 
-        # Initialize Optimizer & Learning Rate Scheduler
+    def prefit_rv(
+            self,
+            log_vmacro0=None,
+            log_vsini0=None,
+            inst_res0=None,
+            rv_range=(-3, 3),
+            n_rv=301,
+            plot=False,
+    ):
+        self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
+        self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
+        #self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        rv0 = torch.linspace(rv_range[0], rv_range[1], n_rv)
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=rv0,
+            cont_coeffs=self.c_flat,
+            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        if self.loss_fn == 'neg_log_posterior':
+            loss0 = self.neg_log_posterior(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=mod_errs * self.obs_blaz,
+                target_errs=self.obs_errs,
+            )
+        else:
+            loss0 = self.loss_fn(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=mod_errs * self.obs_blaz,
+                target_errs=self.obs_errs,
+            )
+        if plot:
+            plt.plot(rv0, loss0.detach().numpy(), c='k')
+            plt.axvline(rv0[loss0.argmin()].unsqueeze(0).detach().numpy(), c='r')
+            plt.show()
+        return rv0[loss0.argmin()].unsqueeze(0)
+
+    def prefit_cont(
+        self,
+        log_vmacro0=None,
+        log_vsini0=None,
+        inst_res0=None,
+        plot=False,
+    ):
+        self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
+        self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
+        #self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=self.rv,
+            cont_coeffs=self.c_flat,
+            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        c0 = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        footprint = np.concatenate([np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
+        tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz)**2 + self.obs_errs**2)
+        mask = torch.isfinite(tot_errs)
+        scaling = self.obs_flux / (mod_flux[0] * self.obs_blaz)
+        for i in range(self.n_obs_ord):
+            filtered_scaling = percentile_filter(scaling[i].detach().numpy(), percentile=25, footprint=footprint)
+            filtered_scaling = percentile_filter(filtered_scaling, percentile=75, footprint=footprint)
+            filtered_scaling[~mask[i]] = 1.0
+            p = Polynomial.fit(
+                x=self.obs_norm_wave[i].detach().numpy(),
+                y=filtered_scaling,
+                deg=self.cont_deg,
+                w=(tot_errs[i]**-1).detach().numpy(),
+                window=self.cont_wave_norm_range
+            )
+            if plot:
+                plt.figure(figsize=(20,1))
+                plt.scatter(
+                    self.obs_wave[i][mask[i]].detach().numpy(),
+                    self.obs_flux[i][mask[i]].detach().numpy(),
+                    c='k', marker='.', alpha=0.8
+                )
+                plt.plot(
+                    self.obs_wave[i].detach().numpy(),
+                    (mod_flux[0,i] * self.obs_blaz[i] * p(self.obs_norm_wave[i])).detach().numpy(),
+                    c='r', alpha=0.8
+                )
+                plt.show()
+            c0[:, i] = ensure_tensor(p.coef)
+        return [c0[i] for i in range(self.n_cont_coeffs)]
+
+    def prefit_vmacro(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_vsini(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_inst_res(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_stellar_labels(self, plot=False):
+        raise NotImplementedError
+
+    def init_optimizer_scheduler(self):
         optim_params = []
         lr_lambdas = []
         if self.params['stellar_labels'] == 'fit':
@@ -878,14 +862,14 @@ class PayneOptimizer:
             optim_params.append({'params': [self.rv], 'lr': self.learning_rates['rv']})
             lr_lambdas.append(
                 lambda epoch: self.learning_rate_decay['rv'] ** (epoch // self.learning_rate_decay_ts['rv']))
-        if self.params['vmacro'] == 'fit':
-            optim_params.append({'params': [self.vmacro], 'lr': self.learning_rates['vmacro']})
-            lr_lambdas.append(lambda epoch: self.learning_rate_decay['vmacro'] ** (
-                        epoch // self.learning_rate_decay_ts['vmacro']))
-        if self.params['vsini'] == 'fit':
-            optim_params.append({'params': [self.vsini], 'lr': self.learning_rates['vsini']})
-            lr_lambdas.append(lambda epoch: self.learning_rate_decay['vsini'] ** (
-                        epoch // self.learning_rate_decay_ts['vsini']))
+        if self.params['log_vmacro'] == 'fit':
+            optim_params.append({'params': [self.log_vmacro], 'lr': self.learning_rates['log_vmacro']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vmacro'] ** (
+                        epoch // self.learning_rate_decay_ts['log_vmacro']))
+        if self.params['log_vsini'] == 'fit':
+            optim_params.append({'params': [self.log_vsini], 'lr': self.learning_rates['log_vsini']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vsini'] ** (
+                        epoch // self.learning_rate_decay_ts['log_vsini']))
         if self.params['inst_res'] == 'fit':
             optim_params.append({'params': [self.inst_res], 'lr': self.learning_rates['inst_res']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['inst_res'] ** (
@@ -906,26 +890,119 @@ class PayneOptimizer:
             optimizer=optimizer,
             lr_lambda=lr_lambdas
         )
+        return optimizer, scheduler
+
+    def holtzman2015(self, scaled_logg):
+        logg_min = np.array(list(self.emulator.models[0].x_min.values()))[1]
+        logg_max = np.array(list(self.emulator.models[0].x_max.values()))[1]
+        vmicro_min = np.array(list(self.emulator.models[0].x_min.values()))[2]
+        vmicro_max = np.array(list(self.emulator.models[0].x_max.values()))[2]
+        unscaled_logg = (scaled_logg + 0.5) * (logg_max - logg_min) + logg_min
+        unscaled_vmicro = 2.478 - 0.325 * unscaled_logg
+        scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
+        return scaled_vmicro
+
+    def neg_log_posterior(self, pred, target, pred_errs, target_errs):#, mask):
+        log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)#, mask)
+        log_priors = torch.zeros_like(log_likelihood)
+        for i, label in enumerate(self.emulator.labels):
+            log_priors += self.priors['stellar_labels'][i](self.stellar_labels[:, i])
+        if self.log_vmacro is not None:
+            log_priors += self.priors['log_vmacro'](self.log_vmacro[:, 0])
+        if self.log_vsini is not None:
+            log_priors += self.priors['log_vsini'](self.log_vsini[:, 0])
+        if self.inst_res is not None:
+            log_priors += self.priors['inst_res'](self.inst_res[:, 0])
+        return -1 * (log_likelihood + log_priors)
+
+    def forward(self):
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=self.rv,
+            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
+            cont_coeffs=torch.stack(self.cont_coeffs),
+            inst_res=self.inst_res,
+            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+        )
+        return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
+
+    def fit(
+            self,
+            obs_flux,
+            obs_errs,
+            obs_wave,
+            obs_blaz=None,
+            params=dict(
+                stellar_labels='fit',
+                rv='fit',
+                vmacro='const',
+                vsini='const',
+                inst_res='const',
+                cont_coeffs='fit',
+            ),
+            init_params=dict(
+                stellar_labels=torch.zeros(1,12),
+                rv='prefit',
+                vmacro=None,
+                vsini=None,
+                inst_res=None,
+                cont_coeffs='prefit'
+            ),
+            priors=None,
+            max_epochs=10000,
+            prefit_cont_window=55,
+            use_holtzman2015=False,
+            verbose=False,
+            plot_prefits=False,
+            plot_fit_every=None,
+    ):
+        self.obs_flux = ensure_tensor(obs_flux)
+        self.obs_errs = ensure_tensor(obs_errs)
+        self.obs_snr = self.obs_flux / self.obs_errs
+        self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
+        self.obs_blaz = ensure_tensor(obs_blaz) if obs_blaz is not None else torch.ones_like(self.obs_flux)
+        if torch.all(self.obs_wave != self.emulator.obs_wave):
+            raise RuntimeError("obs_wave of Emulator and Optimizer differ!")
+        self.obs_norm_wave = self.emulator.obs_norm_wave
+        self.obs_wave_ = self.emulator.obs_wave_
+        self.n_obs_ord = self.obs_wave.shape[0]
+        self.n_obs_pix_per_ord = self.obs_wave.shape[0]
+
+        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        self.c_flat[0] = 1.0
+        self.prefit_cont_window = prefit_cont_window
+
+        self.params = params
+        self.init_params = init_params
+        self.priors = priors
+
+        self.use_holtzman2015 = use_holtzman2015
+
+        # Initialize Starting Values
+        self.init_values(plot_prefits=plot_prefits)
+
+        # Initialize Optimizer & Learning Rate Scheduler
+        optimizer, scheduler = self.init_optimizer_scheduler()
 
         # Initialize Convergence Criteria
         epoch = 0
         self.loss = ensure_tensor(np.inf)
         delta_loss = ensure_tensor(np.inf)
         delta_stellar_labels = ensure_tensor(np.inf)
-        delta_vmacro = ensure_tensor(np.inf)
+        delta_log_vmacro = ensure_tensor(np.inf)
         delta_rv = ensure_tensor(np.inf)
         delta_inst_res = ensure_tensor(np.inf)
-        delta_vsini = ensure_tensor(np.inf)
+        delta_log_vsini = ensure_tensor(np.inf)
         delta_frac_weighted_cont = ensure_tensor(np.inf)
         last_cont = torch.zeros_like(self.obs_blaz)
 
         # Initialize History
         self.history = dict(
             stellar_labels=[],
-            vmacro=[],
+            log_vmacro=[],
             rv=[],
             inst_res=[],
-            vsini=[],
+            log_vsini=[],
             cont_coeffs=[],
             loss=[]
         )
@@ -935,10 +1012,10 @@ class PayneOptimizer:
                 and (
                         (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
                         or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
-                        or (delta_vmacro.abs() > self.tolerances['d_vmacro'])
+                        or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
                         or (delta_rv.abs() > self.tolerances['d_rv'])
                         or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
-                        or (delta_vsini.abs() > self.tolerances['d_vsini'])
+                        or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
                 )
                 and (
                         delta_loss.abs() > self.tolerances['d_loss']
@@ -949,30 +1026,38 @@ class PayneOptimizer:
         ):
             # Forward Pass
             mod_flux, mod_errs = self.forward()
-            loss_epoch = self.loss_fn(
-                pred=mod_flux,
-                target=self.obs_flux,
-                pred_errs=mod_errs,
-                target_errs=self.obs_errs,
-            )
+            if self.loss_fn == 'neg_log_posterior':
+                loss_epoch = self.neg_log_posterior(
+                    pred=mod_flux,
+                    target=self.obs_flux,
+                    pred_errs=mod_errs,
+                    target_errs=self.obs_errs,
+                )
+            else:
+                loss_epoch = self.loss_fn(
+                    pred=mod_flux,
+                    target=self.obs_flux,
+                    pred_errs=mod_errs,
+                    target_errs=self.obs_errs,
+                )
 
             # Log Results / History
             delta_loss = self.loss - loss_epoch
             self.loss = loss_epoch.item()
             self.history['stellar_labels'].append(torch.clone(self.stellar_labels).detach())
             self.history['rv'].append(torch.clone(self.rv))
-            if self.vmacro is None:
-                self.history['vmacro'].append(None)
+            if self.log_vmacro is None:
+                self.history['log_vmacro'].append(None)
             else:
-                self.history['vmacro'].append(torch.clone(self.vmacro))
+                self.history['log_vmacro'].append(torch.clone(self.log_vmacro))
             if self.inst_res is None:
                 self.history['inst_res'].append(None)
             else:
                 self.history['inst_res'].append(torch.clone(self.inst_res))
-            if self.vsini is None:
-                self.history['vsini'].append(None)
+            if self.log_vsini is None:
+                self.history['log_vsini'].append(None)
             else:
-                self.history['vsini'].append(torch.clone(self.vsini))
+                self.history['log_vsini'].append(torch.clone(self.log_vsini))
             self.history['cont_coeffs'].append(torch.clone(torch.stack(self.cont_coeffs)).detach())
             self.history['loss'].append(self.loss)
 
@@ -987,10 +1072,10 @@ class PayneOptimizer:
                 self.stellar_labels.clamp_(min=-0.55, max=0.55)
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
-                if self.vmacro is not None:
-                    self.vmacro.clamp_(min=1e-3, max=15.0)
-                if self.vsini is not None:
-                    self.vsini.clamp_(min=0.0, max=np.inf)
+                if self.log_vmacro is not None:
+                    self.log_vmacro.clamp_(min=-3.0, max=1.5)
+                if self.log_vsini is not None:
+                    self.log_vsini.clamp_(min=-1.0, max=2.5)
                 if self.inst_res is not None:
                     self.inst_res.clamp_(
                         min=100,
@@ -999,10 +1084,10 @@ class PayneOptimizer:
 
             # Check Convergence
             delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
-            delta_vmacro = ensure_tensor(0) if self.vmacro is None else self.vmacro - self.history['vmacro'][-1]
+            delta_log_vmacro = ensure_tensor(0) if self.log_vmacro is None else self.log_vmacro - self.history['log_vmacro'][-1]
             delta_rv = self.rv - self.history['rv'][-1]
             delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
-            delta_vsini = ensure_tensor(0) if self.vsini is None else self.vsini - self.history['vsini'][-1]
+            delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - self.history['log_vsini'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
             if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
@@ -1035,10 +1120,10 @@ class PayneOptimizer:
 
         # Recover Best Epoch
         self.stellar_labels = self.history['stellar_labels'][np.argmin(self.history['loss'])]
-        self.vmacro = self.history['vmacro'][np.argmin(self.history['loss'])]
+        self.log_vmacro = self.history['log_vmacro'][np.argmin(self.history['loss'])]
         self.rv = self.history['rv'][np.argmin(self.history['loss'])]
         self.inst_res = self.history['inst_res'][np.argmin(self.history['loss'])]
-        self.vsini = self.history['vsini'][np.argmin(self.history['loss'])]
+        self.log_vsini = self.history['log_vsini'][np.argmin(self.history['loss'])]
         self.cont_coeffs = [self.history['cont_coeffs'][np.argmin(self.history['loss'])][i] for i in
                             range(self.n_cont_coeffs)]
         self.loss = np.min(self.history['loss'])
@@ -1052,12 +1137,12 @@ class PayneOptimizer:
             print('d_stellar_labels tolerance reached')
         if not delta_rv.abs().max() > self.tolerances['d_rv']:
             print('d_rv tolerance reached')
-        if not delta_vmacro.abs().max() > self.tolerances['d_vmacro'] and self.vmacro is not None and verbose:
-            print('d_vmacro tolerance reached')
+        if not delta_log_vmacro.abs().max() > self.tolerances['d_log_vmacro'] and self.log_vmacro is not None and verbose:
+            print('d_log_vmacro tolerance reached')
         if not delta_inst_res.abs().max() > self.tolerances['d_inst_res'] and self.inst_res is not None :
             print('d_inst_res tolerance reached')
-        if not delta_vsini.abs().max() > self.tolerances['d_vsini'] and self.vsini is not None :
-            print('d_vsini tolerance reached')
+        if not delta_log_vsini.abs().max() > self.tolerances['d_log_vsini'] and self.log_vsini is not None :
+            print('d_log_vsini tolerance reached')
         if not delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont']:
             print('d_cont tolerance reached')
         if not delta_loss.abs() > self.tolerances['d_loss']:
