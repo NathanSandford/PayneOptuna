@@ -468,7 +468,7 @@ def main(args):
                     ensure_tensor(payne.model_res)
                 )
             else:
-                inst_res0 = None if args.resolution == 'default' else ensure_tensor(int(args.resolution))
+                inst_res0 = None if args.resolution == 'default' else int(args.resolution) * torch.ones(1,1)
             # Begin Fit
             optimizer.fit(
                 obs_flux=obs['spec'] if args.resolution == "default" else obs['conv_spec'],
