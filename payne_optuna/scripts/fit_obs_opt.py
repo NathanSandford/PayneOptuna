@@ -527,7 +527,7 @@ def main(args):
                 'log_vmacro': optimizer.log_vmacro.detach() if optimizer.log_vmacro is not None else None,
                 'log_vsini': optimizer.log_vsini.detach() if optimizer.log_vsini is not None else None,
                 'inst_res': optimizer.inst_res.detach() if optimizer.inst_res is not None else None,
-                'cont_coeffs':optimizer.cont_coeffs.detach(),
+                'cont_coeffs':torch.stack(optimizer.cont_coeffs).detach(),
                 'obs_wave': optimizer.obs_wave.detach(),
                 'obs_flux': optimizer.obs_flux.detach(),
                 'obs_errs': optimizer.obs_errs.detach(),
