@@ -248,8 +248,72 @@ def main(args):
     if args.mask_lines:
         line_masks = np.load(line_mask_file)
 
-    # Load Observations
-    all_obs = {}
+    ## Load Observations
+    #all_obs = {}
+    #for obs_file in obs_files:
+    #    print(f'Loading {obs_file}')
+    #    obs_spec_file = obs_dir.joinpath(obs_file)
+    #    if isinstance(args.orders, str) and args.orders.lower() == 'all':
+    #        orders_to_fit = get_all_order_numbers(obs_spec_file)
+    #    else:
+    #        orders_to_fit = args.orders
+    #    obs = load_spectrum(
+    #        spec_file=obs_spec_file,
+    #        orders_to_fit=orders_to_fit,
+    #        extraction='OPT',
+    #        flats=flats,
+    #        vel_correction='heliocentric',
+    #    )
+    #    # Tellurics from https://www2.keck.hawaii.edu/inst/common/makeewww/Atmosphere/atmabs.txt
+    #    tellurics = pd.read_csv(tellurics_file, skiprows=3, header=0, sep='\s+', engine='python',
+    #                            names=['wave_min', 'wave_max', 'instensity', 'wave_center'])
+    #    tellurics['wave_min'] *= obs['vel_corr_factor']
+    #    tellurics['wave_max'] *= obs['vel_corr_factor']
+    #    # Mannual Masks
+    #    obs['mask'][:, :64] = False  # Mask detector edges
+    #    obs['mask'][:, -128:] = False  # Mask detector edges
+    #    #obs['mask'][obs['spec'] < 0] = False  # Mask negative fluxes
+    #    obs['mask'][obs['spec'] > 25e3] = False  # Mask hot pixels
+    #    obs['mask'][(obs['ords'] == 92)[:, np.newaxis] & (obs['wave'] < 3860)] = False  # Mask blue end of spectrum
+    #    obs['mask'][(obs['ords'] == 66)[:, np.newaxis] & (obs['wave'] < 5365)] = False  # Mask weird detector response
+    #    obs['mask'][(obs['ords'] == 61)[:, np.newaxis] & (obs['wave'] > 5880)] = False  # Mask weird lines
+    #    obs['mask'][(obs['ords'] == 60)[:, np.newaxis] & (obs['wave'] < 5900)] = False  # Mask weird lines
+    #    obs['mask'][(obs['ords'] == 52)[:, np.newaxis] & (obs['wave'] > 6900)] = False  # Mask weird detector response
+    #    obs['mask'][(obs['ords'] == 51)[:, np.newaxis] & (obs['wave'] < 6960)] = False  # Mask weird detector response
+    #    # Mask Telluric Lines
+    #    for line in tellurics.index:
+    #        telluric_mask = (obs['wave'] > tellurics.loc[line, 'wave_min']) & (
+    #                    obs['wave'] < tellurics.loc[line, 'wave_max'])
+    #        obs['mask'][telluric_mask] = False
+    #    # Implement Mask
+    #    obs['raw_errs'] = deepcopy(obs['errs'])
+    #    obs['errs'][~obs['mask']] = np.inf
+    #    # Scale Blaze Function
+    #    obs['scaled_blaz'] = obs['blaz'] / np.quantile(obs['blaz'], 0.95, axis=1)[:, np.newaxis] * np.quantile(
+    #        obs['spec'], 0.95, axis=1)[:, np.newaxis]
+    #    # Save to Dictionary
+    #    all_obs[obs_spec_file.stem[7:]] = obs
+
+    # Load Models
+    models = []
+    for i, config_file in enumerate(config_files):
+        model = load_model(config_file)
+        # Manually Mask Lines
+        if args.mask_lines:
+            for j in range(len(line_masks)):
+                model.mod_errs[
+                    (model.wavelength > line_masks[j][0] - line_masks[j][1])
+                    & (model.wavelength < line_masks[j][0] + line_masks[j][1])
+                    ] = 1
+        # Add NLTE Errors
+        if args.use_nlte_errs:
+            try:
+                nlte_errs = np.load(nlte_errs_files[i])
+                model.mod_errs = np.sqrt(model.mod_errs ** 2 + nlte_errs['errs'] ** 2)
+            except FileNotFoundError:
+                print('NLTE error could not be loaded. Assuming zero NLTE errors.')
+        models.append(model)
+
     for obs_file in obs_files:
         print(f'Loading {obs_file}')
         obs_spec_file = obs_dir.joinpath(obs_file)
@@ -291,31 +355,10 @@ def main(args):
         # Scale Blaze Function
         obs['scaled_blaz'] = obs['blaz'] / np.quantile(obs['blaz'], 0.95, axis=1)[:, np.newaxis] * np.quantile(
             obs['spec'], 0.95, axis=1)[:, np.newaxis]
-        # Save to Dictionary
-        all_obs[obs_spec_file.stem[7:]] = obs
-
-    # Load Models
-    models = []
-    for i, config_file in enumerate(config_files):
-        model = load_model(config_file)
-        # Manually Mask Lines
-        if args.mask_lines:
-            for j in range(len(line_masks)):
-                model.mod_errs[
-                    (model.wavelength > line_masks[j][0] - line_masks[j][1])
-                    & (model.wavelength < line_masks[j][0] + line_masks[j][1])
-                    ] = 1
-        # Add NLTE Errors
-        if args.use_nlte_errs:
-            try:
-                nlte_errs = np.load(nlte_errs_files[i])
-                model.mod_errs = np.sqrt(model.mod_errs ** 2 + nlte_errs['errs'] ** 2)
-            except FileNotFoundError:
-                print('NLTE error could not be loaded. Assuming zero NLTE errors.')
-        models.append(model)
+        name = obs_spec_file.stem[7:]
 
     # Perform Fit
-    for name, obs in all_obs.items():
+    #for name, obs in all_obs.items():
         print(f'Beginning Analysis of {name}')
 
         # Determine Model Breaks
@@ -399,6 +442,7 @@ def main(args):
                         horizontalalignment='right',
                         bbox=dict(facecolor='white', alpha=0.8))
             plt.savefig(fig_dir.joinpath(f'{name}_obs_{args.resolution}.png'))
+            plt.clf()
 
         # Set Priors
         logg_mu = payne.scale_stellar_labels(0.50 * torch.ones(payne.n_stellar_labels))[1]
@@ -591,6 +635,7 @@ def main(args):
                         ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                     panel += 1
                 plt.savefig(fig_dir.joinpath(f'{name}_convergence_{args.resolution}_{n+1}.png'))
+                plt.clf()
         
             # Plot Fits
             if args.plot:
@@ -623,6 +668,9 @@ def main(args):
                     ax2.tick_params('x', labelsize=36)
                     ax2.tick_params('y', labelsize=36)
                     plt.savefig(fig_dir.joinpath(f"{name}_spec_{args.resolution}_{int(obs['ords'][i])}.png"))
+                    plt.clf()
 
+            del optimizer
+            del optim_fit
             gc.collect()
             print(f'Completed Fit {n+1}/{args.n_fits} for {name}')
