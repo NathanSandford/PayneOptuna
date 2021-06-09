@@ -522,18 +522,18 @@ def main(args):
 
             # Save Labels & Fits
             optim_fit = {
-                'stellar_labels': torch.clone(optimizer.stellar_labels).detach(),
-                'rv': torch.clone(optimizer.rv).detach(),
-                'log_vmacro': torch.clone(optimizer.log_vmacro).detach() if optimizer.log_vmacro is not None else None,
-                'log_vsini': torch.clone(optimizer.log_vsini).detach() if optimizer.log_vsini is not None else None,
-                'inst_res': torch.clone(optimizer.inst_res).detach() if optimizer.inst_res is not None else None,
-                'cont_coeffs': torch.clone(torch.stack(optimizer.cont_coeffs)).detach(),
-                'obs_wave': torch.clone(optimizer.obs_wave).detach(),
-                'obs_flux': torch.clone(optimizer.obs_flux).detach(),
-                'obs_errs': torch.clone(optimizer.obs_errs).detach(),
-                'obs_blaz': torch.clone(optimizer.obs_blaz).detach(),
-                'mod_flux': torch.clone(optimizer.best_model).detach(),
-                'mod_errs': torch.clone(optimizer.best_model_errs).detach(),
+                'stellar_labels': optimizer.stellar_labels.detach(),
+                'rv': optimizer.rv.detach(),
+                'log_vmacro': optimizer.log_vmacro.detach() if optimizer.log_vmacro is not None else None,
+                'log_vsini': optimizer.log_vsini.detach() if optimizer.log_vsini is not None else None,
+                'inst_res': optimizer.inst_res.detach() if optimizer.inst_res is not None else None,
+                'cont_coeffs':optimizer.cont_coeffs.detach(),
+                'obs_wave': optimizer.obs_wave.detach(),
+                'obs_flux': optimizer.obs_flux.detach(),
+                'obs_errs': optimizer.obs_errs.detach(),
+                'obs_blaz': optimizer.obs_blaz.detach(),
+                'mod_flux': optimizer.best_model.detach(),
+                'mod_errs': optimizer.best_model_errs.detach(),
                 'loss': optimizer.loss,
             }
             np.savez(
