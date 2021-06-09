@@ -2,6 +2,7 @@ import argparse
 import yaml
 from pathlib import Path
 from copy import deepcopy
+import gc
 
 import numpy as np
 import pandas as pd
@@ -623,4 +624,5 @@ def main(args):
                     ax2.tick_params('y', labelsize=36)
                     plt.savefig(fig_dir.joinpath(f"{name}_spec_{args.resolution}_{int(obs['ords'][i])}.png"))
 
+            gc.collect()
             print(f'Completed Fit {n+1}/{args.n_fits} for {name}')
