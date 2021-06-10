@@ -228,7 +228,7 @@ def main(args):
     config_dir = Path(args.config_dir)
     data_dir = Path(args.data_dir)
     flats_dir = data_dir.joinpath('flats')
-    obs_dir = data_dir.joinpath('obs')
+    obs_dir = data_dir.joinpath(f'obs')
     mask_dir = data_dir.joinpath('masks')
     nlte_errs_dir = data_dir.joinpath('nlte_errs')
     fig_dir = data_dir.joinpath('figures')
@@ -237,11 +237,11 @@ def main(args):
     obs_name = f'{args.star}_{args.frame}_{args.date}'
 
     config_files = sorted(list(config_dir.glob('*')))
-    flat_files = [
-        flats_dir.joinpath(f'MasterFlat_B_{args.date}.fits'),
-        flats_dir.joinpath(f'MasterFlat_G_{args.date}.fits'),
-        flats_dir.joinpath(f'MasterFlat_R_{args.date}.fits'),
-    ]
+    flat_files = {
+        1: flats_dir.joinpath(f'MasterFlat_B_{args.date}.fits'),
+        2: flats_dir.joinpath(f'MasterFlat_G_{args.date}.fits'),
+        3: flats_dir.joinpath(f'MasterFlat_R_{args.date}.fits'),
+    }
     obs_spec_file = obs_dir.joinpath(f'spec1d_{obs_name}.fits')
     tellurics_file = mask_dir.joinpath('tellurics.txt')
     bad_line_mask_file = mask_dir.joinpath('bad_lines.npy')
@@ -250,8 +250,7 @@ def main(args):
     # Load Flats
     print(f'Loading flats from {args.date}')
     flats = {}
-    for flat_file in flat_files:
-        det = int(flat_file.with_suffix('').name[-2:])
+    for det, flat_file in flat_files.items():
         flats[det] = MasterFlats(flat_file)
 
     # Load Masks
