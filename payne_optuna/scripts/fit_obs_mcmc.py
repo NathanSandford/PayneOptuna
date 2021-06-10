@@ -33,12 +33,19 @@ def parse_args(options=None):
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum")
     parser.add_argument("config_dir", help="Directory containing model config files")
     parser.add_argument("data_dir", help="Directory containing data files")
-    parser.add_argument("obs_name", help="Name of observation to fit")
+    parser.add_argument("star", help="Name of star to be fit")
+    parser.add_argument("frame", help="specific frame to be fit")
+    parser.add_argument("date", help="date of observation")
     parser.add_argument("-o", "--orders", help="Orders to fit. List or 'all'.")
     parser.add_argument("-R", "--resolution", default='default', help="Resolution to convolve and fit to.")
-    parser.add_argument(
-        "-p", "--plot", action="store_true", default=False, help="Plot QA"
-    )
+    parser.add_argument("-Vmacro", "--fit_vmacro", action='store_true', default=False, help="Fit vmacro.")
+    parser.add_argument("-Vmicro", "--fit_vmicro", action='store_true', default=False, help="Fit vmicro (Not implemented yet).")
+    parser.add_argument("-Vsini", "--fit_vsini", action='store_true', default=False, help="Fit vsini.")
+    parser.add_argument("-InstRes", "--fit_inst_res", action='store_true', default=False, help="Fit inst_res.")
+    parser.add_argument("-N", "--n_fits", default=1, help="Number of fits to perform w/ different starts.")
+    parser.add_argument('-nlte_errs', '--use_nlte_errs', action='store_true', default=False, help="Include NLTE errors.")
+    parser.add_argument('-mask', '--mask_lines', action='store_true', default=False, help="Mask bad lines.")
+    parser.add_argument('-p', "--plot", action='store_true', default=False, help="Plot QA")
     if options is None:
         args = parser.parse_args()
     else:
@@ -240,18 +247,29 @@ def main(args):
     mpl.rc("legend", edgecolor="k", framealpha=1, fancybox=False)
     mpl.rc("figure", dpi=300)
 
-    data_dir = Path(args.data_dir)
-    flats_dir = data_dir.joinpath("flats")
-    obs_dir = data_dir.joinpath("obs")
-    tellurics_dir = data_dir.joinpath("tellurics")
+    # I/O Prep
     config_dir = Path(args.config_dir)
-    fig_dir = data_dir.joinpath("figures")
-    fits_dir = data_dir.joinpath("fits")
+    data_dir = Path(args.data_dir)
+    flats_dir = data_dir.joinpath('flats')
+    obs_dir = data_dir.joinpath('obs')
+    mask_dir = data_dir.joinpath('masks')
+    nlte_errs_dir = data_dir.joinpath('nlte_errs')
+    fig_dir = data_dir.joinpath('figures')
+    fits_dir = data_dir.joinpath('fits')
+    sample_dir = data_dir.joinpath('samples')
 
-    flat_files = sorted(list(flats_dir.glob("*")))
-    obs_files = sorted(list(obs_dir.glob("*")))
-    tellurics_file = list(tellurics_dir.glob("*"))[0]
-    config_files = sorted(list(config_dir.glob("*")))
+    obs_name = f'{args.star}_{args.frame}_{args.date}'
+
+    config_files = sorted(list(config_dir.glob('*')))
+    flat_files = [
+        flats_dir.joinpath(f'MasterFlat_B_{args.date}.fits'),
+        flats_dir.joinpath(f'MasterFlat_G_{args.date}.fits'),
+        flats_dir.joinpath(f'MasterFlat_R_{args.date}.fits'),
+    ]
+    obs_spec_file = obs_dir.joinpath(f'spec1d_{obs_name}.fits')
+    tellurics_file = mask_dir.joinpath('tellurics.txt')
+    bad_line_mask_file = mask_dir.joinpath('bad_lines.npy')
+    nlte_errs_files = sorted(list(nlte_errs_dir.glob('*')))
 
     # Load Flats
     flats = {}
@@ -259,77 +277,70 @@ def main(args):
         det = int(flat_file.with_suffix("").name[-2:])
         flats[det] = MasterFlats(flat_file)
 
-    # Load Observations
-    obs_file_match = [
-        obs_file for obs_file in obs_files if args.obs_name in obs_file.name
-    ]
-    if len(obs_file_match) > 1:
-        raise RuntimeError(
-            f"More than one observation matches 'obs_name' ({args.obs_name})"
-        )
-    elif len(obs_file_match) < 1:
-        raise RuntimeError(f"No observation matches 'obs_name' ({args.obs_name})")
-    else:
-        obs_file = obs_file_match[0]
-    print(f"Loading {obs_file}")
-    obs_spec_file = obs_dir.joinpath(obs_file)
-    if isinstance(args.orders, str) and args.orders.lower() == "all":
+    # Load Masks
+    if args.mask_lines:
+        line_masks = np.load(bad_line_mask_file)
+
+    # Load Models
+    models = []
+    for i, config_file in enumerate(config_files):
+        model = load_model(config_file)
+        # Manually Mask Lines
+        if args.mask_lines:
+            for j in range(len(line_masks)):
+                model.mod_errs[
+                    (model.wavelength > line_masks[j][0] - line_masks[j][1])
+                    & (model.wavelength < line_masks[j][0] + line_masks[j][1])
+                    ] = 1
+        # Add NLTE Errors
+        if args.use_nlte_errs:
+            try:
+                nlte_errs = np.load(nlte_errs_files[i])
+                model.mod_errs = np.sqrt(model.mod_errs ** 2 + nlte_errs['errs'] ** 2)
+            except FileNotFoundError:
+                print('NLTE error could not be loaded. Assuming zero NLTE errors.')
+        models.append(model)
+
+    print(f'Loading {obs_spec_file.name}')
+    if isinstance(args.orders, str) and args.orders.lower() == 'all':
         orders_to_fit = get_all_order_numbers(obs_spec_file)
     else:
         orders_to_fit = args.orders
     obs = load_spectrum(
         spec_file=obs_spec_file,
         orders_to_fit=orders_to_fit,
-        extraction="OPT",
+        extraction='OPT',
         flats=flats,
-        vel_correction="heliocentric",
+        vel_correction='heliocentric',
     )
-    # Tellurics from https://www2.keck.hawaii.edu/inst/common/makeewww/Atmosphere/atmabs.txt
-    tellurics = pd.read_csv(
-        tellurics_file,
-        skiprows=3,
-        header=0,
-        sep="\s+",
-        engine="python",
-        names=["wave_min", "wave_max", "instensity", "wave_center"],
-    )
-    tellurics["wave_min"] *= obs["vel_corr_factor"]
-    tellurics["wave_max"] *= obs["vel_corr_factor"]
+    print('Applying masks')
     # Mannual Masks
-    obs["mask"][0][obs["wave"][0] < 3860] = False  # Mask blue end of spectrum
-    obs["mask"][:, :64] = False  # Mask detector edges
-    obs["mask"][:, -128:] = False  # Mask detector edges
-    obs["mask"][obs["spec"] < 0] = False  # Mask negative fluxes
-    obs["mask"][obs["spec"] > 25e3] = False  # Mask hot pixels
-    obs["mask"][
-        (obs["ords"] == 66)[:, np.newaxis] & (obs["wave"] < 5365)
-    ] = False  # Mask weird detector response
-    obs["mask"][
-        (obs["ords"] == 52)[:, np.newaxis] & (obs["wave"] > 6900)
-    ] = False  # Mask weird detector response
-    obs["mask"][
-        (obs["ords"] == 51)[:, np.newaxis] & (obs["wave"] < 6960)
-    ] = False  # Mask weird detector response
+    obs['mask'][:, :64] = False  # Mask detector edges
+    obs['mask'][:, -128:] = False  # Mask detector edges
+    obs['mask'][obs['spec'] < -50] = False  # Mask negative fluxes
+    obs['mask'][obs['spec'] > 25e3] = False  # Mask hot pixels
+    obs['mask'][(obs['ords'] == 92)[:, np.newaxis] & (obs['wave'] < 3860)] = False  # Mask blue end of spectrum
+    obs['mask'][(obs['ords'] == 66)[:, np.newaxis] & (obs['wave'] < 5365)] = False  # Mask weird detector response
+    obs['mask'][(obs['ords'] == 61)[:, np.newaxis] & (obs['wave'] > 5880)] = False  # Mask weird lines
+    obs['mask'][(obs['ords'] == 60)[:, np.newaxis] & (obs['wave'] < 5900)] = False  # Mask weird lines
+    obs['mask'][(obs['ords'] == 52)[:, np.newaxis] & (obs['wave'] > 6900)] = False  # Mask weird detector response
+    obs['mask'][(obs['ords'] == 51)[:, np.newaxis] & (obs['wave'] < 6960)] = False  # Mask weird detector response
     # Mask Telluric Lines
+    # Tellurics from https://www2.keck.hawaii.edu/inst/common/makeewww/Atmosphere/atmabs.txt
+    tellurics = pd.read_csv(tellurics_file, skiprows=3, header=0, sep='\s+', engine='python',
+                            names=['wave_min', 'wave_max', 'instensity', 'wave_center'])
+    tellurics['wave_min'] *= obs['vel_corr_factor']
+    tellurics['wave_max'] *= obs['vel_corr_factor']
     for line in tellurics.index:
-        telluric_mask = (obs["wave"] > tellurics.loc[line, "wave_min"]) & (
-            obs["wave"] < tellurics.loc[line, "wave_max"]
-        )
-        obs["mask"][telluric_mask] = False
+        telluric_mask = (obs['wave'] > tellurics.loc[line, 'wave_min']) & (
+                obs['wave'] < tellurics.loc[line, 'wave_max'])
+        obs['mask'][telluric_mask] = False
     # Implement Mask
-    obs["raw_errs"] = deepcopy(obs["errs"])
-    obs["errs"][~obs["mask"]] = np.inf
+    obs['raw_errs'] = deepcopy(obs['errs'])
+    obs['errs'][~obs['mask']] = np.inf
     # Scale Blaze Function
-    obs["scaled_blaz"] = (
-        obs["blaz"]
-        / np.quantile(obs["blaz"], 0.95, axis=1)[:, np.newaxis]
-        * np.quantile(obs["spec"], 0.95, axis=1)[:, np.newaxis]
-    )
-
-    # Load Models
-    models = []
-    for config_file in config_files:
-        models.append(load_model(config_file))
+    obs['scaled_blaz'] = obs['blaz'] / np.quantile(obs['blaz'], 0.95, axis=1)[:, np.newaxis] * np.quantile(
+        obs['spec'], 0.95, axis=1)[:, np.newaxis]
 
     # Determine Model Breaks
     model_bounds = find_model_breaks(models, obs)
@@ -355,100 +366,45 @@ def main(args):
         masked_spec[~obs['mask']] = obs['scaled_blaz'][~obs['mask']]
         conv_obs_flux, conv_obs_errs = payne.inst_broaden(
             wave=ensure_tensor(obs['wave'], precision=torch.float64),
-            flux=ensure_tensor(masked_spec),
-            errs=ensure_tensor(obs['raw_errs']),
+            flux=ensure_tensor(masked_spec).unsqueeze(0),
+            errs=ensure_tensor(obs['raw_errs']).unsqueeze(0),
             inst_res=ensure_tensor(int(args.resolution)),
             model_res=ensure_tensor(86600),
         )
         conv_obs_mask, _ = payne.inst_broaden(
             wave=ensure_tensor(obs['wave'], precision=torch.float64),
-            flux=ensure_tensor(obs['mask']),
+            flux=ensure_tensor(obs['mask']).unsqueeze(0),
             errs=None,
             inst_res=ensure_tensor(int(args.resolution)),
             model_res=ensure_tensor(86600),
         )
-        conv_obs_mask = (conv_obs_mask > 0.9999)
+        conv_obs_mask = (conv_obs_mask > 0.999)
         conv_obs_errs[~conv_obs_mask] = np.inf
-        obs['conv_spec'] = conv_obs_flux.detach().numpy()
-        obs['conv_errs'] = conv_obs_errs.detach().numpy()
-        obs['conv_mask'] = conv_obs_mask.detach().numpy()
+        obs['conv_spec'] = conv_obs_flux.squeeze().detach().numpy()
+        obs['conv_errs'] = conv_obs_errs.squeeze().detach().numpy()
+        obs['conv_mask'] = conv_obs_mask.squeeze().detach().numpy()
+        # Scale Spec by Blaze
         obs["norm_spec"] = obs["conv_spec"] / obs["scaled_blaz"]
         obs["norm_errs"] = obs["conv_errs"] / obs["scaled_blaz"]
     else:
+        print('Using default resolution')
         # Scale Spec by Blaze
         obs["norm_spec"] = obs["spec"] / obs["scaled_blaz"]
         obs["norm_errs"] = obs["errs"] / obs["scaled_blaz"]
 
-    # Plot Observed Spectrum & Blaze Function
-    if args.plot:
-        n_ord = obs["ords"].shape[0]
-        fig = plt.figure(figsize=(10, n_ord))
-        gs = GridSpec(n_ord, 1)
-        gs.update(hspace=0.5)
-        for j, order in enumerate(obs["ords"]):
-            ax = plt.subplot(gs[j, 0])
-            # print(name, order)
-            tellurics_in_order = tellurics[
-                (
-                        (tellurics["wave_min"] > np.min(obs["wave"][j]))
-                        & (tellurics["wave_min"] < np.max(obs["wave"][j]))
-                )
-                | (
-                        (tellurics["wave_max"] > np.min(obs["wave"][j]))
-                        & (tellurics["wave_max"] < np.max(obs["wave"][j]))
-                )
-                ]
-            ax.plot(
-                obs["wave"][j],
-                obs["scaled_blaz"][j],
-                alpha=0.8,
-                c="r",
-                label="Scaled Blaze",
-            )
-            ax.scatter(
-                obs["wave"][j][obs["mask"][j]],
-                obs["spec"][j][obs["mask"][j]],
-                alpha=0.8,
-                marker=".",
-                s=1,
-                c="k",
-                label="Observed Spectrum",
-            )
-            if args.resolution != "default":
-                ax.scatter(
-                    obs['wave'][j][obs['conv_mask'][j]], obs['conv_spec'][j][obs['conv_mask'][j]],
-                    alpha=0.8, marker='.', s=1, c='b', label='Convolved Spectrum'
-                )
-            if j == 0:
-                ax.set_title(args.obs_name)
-                ax.legend(fontsize=8)
-            for line in tellurics_in_order.index:
-                ax.axvspan(
-                    tellurics_in_order.loc[line, "wave_min"],
-                    tellurics_in_order.loc[line, "wave_max"],
-                    color="grey",
-                    alpha=0.5,
-                )
-            ax.set_ylim(0, 3 * np.mean(obs["spec"][j][obs["mask"][j]]))
-            ax.text(
-                0.98,
-                0.70,
-                f"Order: {int(order)}",
-                transform=ax.transAxes,
-                fontsize=6,
-                verticalalignment="top",
-                horizontalalignment="right",
-                bbox=dict(facecolor="white", alpha=0.8),
-            )
-        plt.savefig(fig_dir.joinpath(f"{args.obs_name}_obs.png"))
-
     # Load Optimizer Best Fit
-    try:
-        optim_fit = np.load(fits_dir.joinpath(f"{args.obs_name}_fit_default.npz"))
-    except (FileNotFoundError):
+    fit_files = sorted(list(fits_dir.glob(f'{obs_name}_fit_{args.resolution}_*.npz')))
+    if len(fit_files) == 0:
         raise RuntimeError(
             f"Could not load optimizer solutions ({args.obs_name}_fit.npz)."
         )
+    losses = np.zeros(len(fit_files))
+    for i, fit_file in enumerate(fit_files):
+        tmp = np.load(fit_file)
+        losses[i] = tmp['loss']
+    best_idx = np.argmin(losses)
+    print('Best from optimization: Trial {best_idx+1}')
+    optim_fit = np.load(fit_files[i])
 
     # Convert Obs Spectrum to Tensor
     obs['norm_spec'] = ensure_tensor(obs['norm_spec'])
@@ -458,18 +414,24 @@ def main(args):
     else:
         obs['mask'] = ensure_tensor(obs['conv_mask'], precision=bool)
 
+    # Teff & logg  Priors
+    teff_mu = payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
+    teff_sigma = payne.scale_stellar_labels(4500 * torch.ones(payne.n_stellar_labels))[0] \
+                 - payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
+    logg_mu = payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
+    logg_sigma = payne.scale_stellar_labels(0.851 * torch.ones(payne.n_stellar_labels))[1] \
+                 - payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
+
     def gaussian_log_likelihood(pred, target, pred_errs, target_errs, mask):
         tot_vars = pred_errs ** 2 + target_errs ** 2
         loglike = -0.5 * (
                 torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
         )
-        return torch.sum(loglike[..., mask], axis=-1)  # .detach().numpy()
+        return torch.sum(loglike[..., mask], axis=-1)
 
     def gaussian_log_prior(x, mu, sigma):
-        return np.sum(
-            np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2,
-            axis=-1,
-        )
+        return np.log(1.0 / (np.sqrt(2 * np.pi) * sigma)) - 0.5 * (x - mu) ** 2 / sigma ** 2
+
 
     def uniform_log_prior(theta, theta_min, theta_max):
         log_prior = np.zeros(theta.shape[0])
@@ -478,14 +440,32 @@ def main(args):
 
     # Define Log Probability
     def log_probability(theta, model, obs):
-        stellar_labels = theta
+        stellar_labels = theta[:, :model.n_stellar_labels]
+        cont_coeffs = optim_fit["cont_coeffs"]
+        reverse_idx = -1
+        rv = ensure_tensor(theta[:, reverse_idx])
+        if args.fit_vmacro:
+            reverse_idx -= 1
+            log_vmacro = theta[:, reverse_idx]
+        else:
+            log_vmacro = None
+        if args.vsini:
+            reverse_idx -= 1
+            log_vsini = theta[:, reverse_idx]
+        else:
+            log_vsini = None
+        if args.fit_inst_res:
+            reverse_idx -= 1
+            inst_res = theta[:, reverse_idx]
+        else:
+            inst_res = None
         mod_spec, mod_errs = model(
             stellar_labels=ensure_tensor(stellar_labels),
-            rv=ensure_tensor(optim_fit["rv"]),
-            vmacro=ensure_tensor(optim_fit["vmacro"]) if optim_fit["vmacro"] is not None else None,
-            vsini=None,  # ensure_tensor(optim_fit["vsini"]) if optim_fit["vsini"] is not None else None,
-            inst_res=None if args.resolution == 'default' else ensure_tensor(int(args.resolution)),  # ensure_tensor(optim_fit["inst_res"]) if optim_fit["inst_res"] is not None else None,
-            cont_coeffs=ensure_tensor(optim_fit["cont_coeffs"]),
+            rv=ensure_tensor(rv),
+            vmacro=ensure_tensor(10**log_vmacro) if log_vmacro is not None else None,
+            vsini=ensure_tensor(10**log_vsini) if log_vsini is not None else None,
+            inst_res=ensure_tensor(inst_res) if inst_res is not None else None,
+            cont_coeffs=ensure_tensor(cont_coeffs),
         )
         log_like = (
             gaussian_log_likelihood(
@@ -496,48 +476,89 @@ def main(args):
                 mask=obs["mask"],
             ).detach().numpy()
         )
-        log_priors = uniform_log_prior(stellar_labels, -0.55, 0.55)
+        log_priors = np.zeros(theta.shape[0])
+        log_priors += gaussian_log_prior(stellar_labels[:, 0], teff_mu, teff_sigma)
+        log_priors += gaussian_log_prior(stellar_labels[:, 1], logg_mu, logg_sigma)
+        log_priors += uniform_log_prior(stellar_labels[:, 2:], -0.55, 0.55)
+        log_priors += gaussian_log_prior(rv, optim_fit["rv"], 0.01)
+        if args.fit_vmacro:
+            log_priors += uniform_log_prior(log_vmacro, -1, 1.3)
+        if args.fit_vsini:
+            log_priors += uniform_log_prior(log_vsini, -1, 1.3)
+        if args.fit_inst_res:
+            log_priors += gaussian_log_prior(inst_res, 1.0, 0.001)
         return log_like + log_priors
 
+    ### Run Burn-In ###
     # Initialize Walkers
-    p0 = optim_fit["stellar_labels"] + 1e-2 * np.random.randn(
-        512, payne.n_stellar_labels
-    )
+    p0_list = [optim_fit["stellar_labels"][0]]
+    if args.fit_inst_res:
+        p0_list += optim_fit["inst_res"]
+    if args.fit_vsini:
+        p0_list += optim_fit["log_vsini"]
+    if args.fit_vmacro:
+        p0_list += optim_fit["log_vmacro"]
+    p0_list += optim_fit["rv"]
+    p0 = np.concatenate(p0_list) + 1e-2 * np.random.randn(64, len(p0_list))
     nwalkers, ndim = p0.shape
-
     # Initialize Backend
-    sample_file = data_dir.joinpath(f"{args.obs_name}_mcmc_samples_{args.resolution}.h5")
-    backend = emcee.backends.HDFBackend(sample_file, name=f"{args.obs_name}")
+    sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
+    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
     backend.reset(nwalkers, ndim)
-
     # Initialize Sampler
     sampler = emcee.EnsembleSampler(
         nwalkers,
         ndim,
         log_probability,
-        moves=emcee.moves.KDEMove(),
         args=(payne, obs),
         vectorize=True,
         backend=backend,
     )
+    # Run Sampler until walkers stop wandering
+    p_mean_last = p0.mean(0)
+    for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+        if (sampler.iteration % 100):
+            continue
+        p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
+        print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
+        if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+            p_mean_last = p_mean
+            break
+        p_mean_last = p_mean
+    print('Burn-In Complete')
 
+    ### Run For Real ###
+    # Initialize Walkers
+    p0 = p_mean_last + 1e-3 * np.random.randn(512, len(p0_list))
+    nwalkers, ndim = p0.shape
+    # Initialize Backend
+    backend = emcee.backends.HDFBackend(sample_file, name=f"{obs_name}")
+    backend.reset(nwalkers, ndim)
+    # Initialize Sampler
+    sampler = emcee.EnsembleSampler(
+        nwalkers,
+        ndim,
+        log_probability,
+        args=(payne, obs),
+        vectorize=True,
+        backend=backend,
+    )
     # Sample Until Convergence is Reached
     max_steps = int(1e5)
     index = 0
     autocorr = np.empty(max_steps)
     old_tau = np.inf
-    for _ in sampler.sample(p0, iterations=max_steps, progress=False, store=True):
+    for _ in sampler.sample(p0, iterations=max_steps, progress=True, store=True):
         if sampler.iteration % 100:
             continue
         tau = sampler.get_autocorr_time(tol=0)
         autocorr[index] = np.mean(tau)
         print(
             f"{args.obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
-            f"t/30Tau = {sampler.iteration/(30*np.max(tau)):.2f}, " +
+            f"t/30Tau = {sampler.iteration / (30 * np.max(tau)):.2f}, " +
             f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
         index += 1
-
         # Check convergence
         converged = np.all(tau * 30 < sampler.iteration)
         converged &= np.all(np.abs(old_tau - tau) / tau < 0.01)
@@ -583,7 +604,7 @@ def main(args):
             ax.set_ylabel(payne.labels[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
         axes[-1].set_xlabel("step number")
-        plt.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_chains.png"))
+        plt.savefig(fig_dir.joinpath(f"{obs_name}_chains.png"))
 
         fig = corner(unscaled_flat_samples, labels=payne.labels)
-        fig.savefig(fig_dir.joinpath(f"{args.obs_name}_mcmc_corner_{args.resolution}.png"))
+        fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{args.resolution}.png"))
