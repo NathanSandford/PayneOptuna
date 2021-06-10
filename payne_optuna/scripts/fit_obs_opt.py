@@ -409,10 +409,10 @@ def main(args):
     teff_sigma = payne.scale_stellar_labels(4500 * torch.ones(payne.n_stellar_labels))[0] \
                  - payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
     logg_mu = payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
-    logg_sigma = payne.scale_stellar_labels(0.86 * torch.ones(payne.n_stellar_labels))[1] \
+    logg_sigma = payne.scale_stellar_labels(0.851 * torch.ones(payne.n_stellar_labels))[1] \
                  - payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
-    print(f'Teff Priors = 4450 +/- 50.0 ({teff_mu} +/- {teff_sigma})')
-    print(f'logg Priors = 0.85 +/- 0.01 ({logg_mu} +/- {logg_sigma})')
+    print(f'Teff Priors = 4450 +/- 50.00 ({teff_mu} +/- {teff_sigma})')
+    print(f'logg Priors = 0.85 +/- 0.001 ({logg_mu} +/- {logg_sigma})')
     priors = {
         'stellar_labels': [
                               GaussianLogPrior('Teff', teff_mu, teff_sigma),
