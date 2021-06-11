@@ -261,11 +261,11 @@ def main(args):
     obs_name = f'{args.star}_{args.frame}_{args.date}'
 
     config_files = sorted(list(config_dir.glob('*')))
-    flat_files = [
-        flats_dir.joinpath(f'MasterFlat_B_{args.date}.fits'),
-        flats_dir.joinpath(f'MasterFlat_G_{args.date}.fits'),
-        flats_dir.joinpath(f'MasterFlat_R_{args.date}.fits'),
-    ]
+    flat_files = {
+        1: flats_dir.joinpath(f'MasterFlat_B_{args.date}.fits'),
+        2: flats_dir.joinpath(f'MasterFlat_G_{args.date}.fits'),
+        3: flats_dir.joinpath(f'MasterFlat_R_{args.date}.fits'),
+    }
     obs_spec_file = obs_dir.joinpath(f'spec1d_{obs_name}.fits')
     tellurics_file = mask_dir.joinpath('tellurics.txt')
     bad_line_mask_file = mask_dir.joinpath('bad_lines.npy')
