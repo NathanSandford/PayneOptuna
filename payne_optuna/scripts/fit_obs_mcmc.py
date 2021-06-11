@@ -492,18 +492,23 @@ def main(args):
     ### Run Burn-In ###
     # Initialize Walkers
     p0_list = [optim_fit["stellar_labels"][0]]
+    label_names = payne.labels
     if args.fit_inst_res:
         p0_list += optim_fit["inst_res"]
+        label_names += ["inst_res"]
     if args.fit_vsini:
         p0_list += optim_fit["log_vsini"]
+        label_names += ["log_vsini"]
     if args.fit_vmacro:
         p0_list += optim_fit["log_vmacro"]
+        label_names += ["log_vmacro"]
     p0_list += optim_fit["rv"]
+    label_names += ["rv"]
     p0 = np.concatenate(p0_list) + 1e-2 * np.random.randn(64, len(p0_list))
     nwalkers, ndim = p0.shape
     # Initialize Backend
     sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
-    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
+    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in")
     backend.reset(nwalkers, ndim)
     # Initialize Sampler
     sampler = emcee.EnsembleSampler(
@@ -525,6 +530,17 @@ def main(args):
             p_mean_last = p_mean
             break
         p_mean_last = p_mean
+    if args.plot:
+        samples = sampler.get_chain()
+        fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
+        for i in range(ndim):
+            ax = axes[i]
+            ax.plot(samples[:, :, i], "k", alpha=0.3)
+            ax.set_xlim(0, len(samples))
+            ax.set_ylabel(label_names[i])
+            ax.yaxis.set_label_coords(-0.1, 0.5)
+        axes[-1].set_xlabel("step number")
+        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_{args.resolution}.png"))
     print('Burn-In Complete')
 
     ### Run For Real ###
@@ -567,32 +583,45 @@ def main(args):
             break
 
     samples = sampler.get_chain()
-    flat_samples = sampler.get_chain(
+    scaled_flat_samples = sampler.get_chain(
         discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
     )
-    unscaled_flat_samples = payne.unscale_stellar_labels(flat_samples)
-    scaled_mean = flat_samples.mean(axis=0)
-    scaled_std = flat_samples.std(axis=0)
+    unscaled_flat_samples = payne.unscale_stellar_labels(scaled_flat_samples[:, :payne.n_stellar_labels])
+    flat_samples = np.concatenate([
+        unscaled_flat_samples,
+        scaled_flat_samples[:, payne.n_stellar_labels:]
+    ], axis=1)
+    scaled_mean = scaled_flat_samples.mean(axis=0)
+    scaled_std = scaled_flat_samples.std(axis=0)
     unscaled_mean = unscaled_flat_samples.mean(axis=0)
     unscaled_std = unscaled_flat_samples.std(axis=0)
 
     print(f"{args.obs_name} Sampling Summary:")
-    for i, label in enumerate(payne.labels):
-        if label not in ["Teff", "logg", "v_micro", "Fe"]:
-            print(
-                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' +
-                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.4f} ' +
-                f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
-            )
-        elif label == "Fe":
+    for i, label in enumerate(label_names):
+        if label == "Fe":
             print(
                 f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' +
                 f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
             )
-        else:
+        elif label in ["Teff", "logg", "v_micro"]:
             print(
                 f'{label}\t = {unscaled_mean[i]:.4f} ' +
                 f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
+            )
+        elif label == "inst_res":
+            print(
+                f'{label}\t = {unscaled_mean[i]*int(args.resolution):.0f} ' +
+                f'+/- {unscaled_std[i]*int(args.resolution):.0f}'
+            )
+        elif label in ["rv", "log_vmacro", "log_vsini"]:
+            print(
+                f'{label}\t = {unscaled_mean[i]:.2f} +/- {unscaled_std[i]:.2f}'
+            )
+        else:
+            print(
+                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' +
+                f'+/- {np.sqrt(unscaled_std[i]**2 + unscaled_std[payne.labels.index("Fe")]**2):.4f} ' +
+                f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
             )
 
     if args.plot:
@@ -604,7 +633,7 @@ def main(args):
             ax.set_ylabel(payne.labels[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
         axes[-1].set_xlabel("step number")
-        plt.savefig(fig_dir.joinpath(f"{obs_name}_chains.png"))
+        plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{args.resolution}.png"))
 
         fig = corner(unscaled_flat_samples, labels=payne.labels)
         fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{args.resolution}.png"))
