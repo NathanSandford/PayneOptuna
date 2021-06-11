@@ -21,7 +21,7 @@ class UniformLogPrior:
 
     def __call__(self, x):
         log_prior = torch.zeros_like(x)
-        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = -np.inf
+        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = -1e10
         return log_prior
 
 
@@ -1073,7 +1073,7 @@ class PayneOptimizer:
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
-                    self.log_vmacro.clamp_(min=-3.0, max=1.5)
+                    self.log_vmacro.clamp_(min=-1.0, max=1.3)
                 if self.log_vsini is not None:
                     self.log_vsini.clamp_(min=-1.0, max=2.5)
                 if self.inst_res is not None:
