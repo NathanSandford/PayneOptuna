@@ -479,7 +479,7 @@ def main(args):
         log_priors += gaussian_log_prior(stellar_labels[:, 0], teff_mu, teff_sigma)
         log_priors += gaussian_log_prior(stellar_labels[:, 1], logg_mu, logg_sigma)
         log_priors += uniform_log_prior(stellar_labels[:, 2:], -0.55, 0.55)
-        log_priors += gaussian_log_prior(rv, optim_fit["rv"], 0.10)
+        log_priors += gaussian_log_prior(rv, optim_fit["rv"], 0.01)
         if args.fit_vmacro:
             log_priors += uniform_log_prior(log_vmacro, -1, 1.3)
         if args.fit_vsini:
