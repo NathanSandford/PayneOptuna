@@ -395,7 +395,7 @@ def main(args):
     fit_files = sorted(list(fits_dir.glob(f'{obs_name}_fit_{args.resolution}_*.npz')))
     if len(fit_files) == 0:
         raise RuntimeError(
-            f"Could not load optimizer solutions ({args.obs_name}_fit.npz)."
+            f"Could not load optimizer solutions ({obs_name}_fit.npz)."
         )
     losses = np.zeros(len(fit_files))
     for i, fit_file in enumerate(fit_files):
@@ -491,19 +491,19 @@ def main(args):
     ### Run Burn-In ###
     # Initialize Walkers
     p0_list = [optim_fit["stellar_labels"][0]]
-    label_names = payne.labels
+    label_names = deepcopy(payne.labels)
     if args.fit_inst_res:
-        p0_list += optim_fit["inst_res"]
-        label_names += ["inst_res"]
+        p0_list.append(optim_fit["inst_res"][0])
+        label_names.append("inst_res")
     if args.fit_vsini:
-        p0_list += optim_fit["log_vsini"]
-        label_names += ["log_vsini"]
+        p0_list.append(optim_fit["log_vsini"][0])
+        label_names.append("log_vsini")
     if args.fit_vmacro:
-        p0_list += optim_fit["log_vmacro"]
-        label_names += ["log_vmacro"]
-    p0_list += optim_fit["rv"]
-    label_names += ["rv"]
-    p0 = np.concatenate(p0_list) + 1e-2 * np.random.randn(64, len(p0_list))
+        p0_list.append(optim_fit["log_vmacro"][0])
+        label_names.append("log_vmacro")
+    p0_list.append(optim_fit["rv"])
+    label_names.append("rv")
+    p0 = np.concatenate(p0_list) + 1e-2 * np.random.randn(64, len(label_names))
     nwalkers, ndim = p0.shape
     # Initialize Backend
     sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
@@ -544,7 +544,7 @@ def main(args):
 
     ### Run For Real ###
     # Initialize Walkers
-    p0 = p_mean_last + 1e-3 * np.random.randn(512, len(p0_list))
+    p0 = p_mean_last + 1e-3 * np.random.randn(512, len(label_names))
     nwalkers, ndim = p0.shape
     # Initialize Backend
     backend = emcee.backends.HDFBackend(sample_file, name=f"{obs_name}")
