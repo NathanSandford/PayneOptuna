@@ -402,7 +402,7 @@ def main(args):
         tmp = np.load(fit_file)
         losses[i] = tmp['loss']
     best_idx = np.argmin(losses)
-    print('Best from optimization: Trial {best_idx+1}')
+    print(f'Best from optimization: Trial {best_idx+1}')
     optim_fit = np.load(fit_files[i])
 
     # Convert Obs Spectrum to Tensor
