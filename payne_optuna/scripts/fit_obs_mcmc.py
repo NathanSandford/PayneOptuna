@@ -273,8 +273,7 @@ def main(args):
 
     # Load Flats
     flats = {}
-    for flat_file in flat_files:
-        det = int(flat_file.with_suffix("").name[-2:])
+    for det, flat_file in flat_files.items():
         flats[det] = MasterFlats(flat_file)
 
     # Load Masks
