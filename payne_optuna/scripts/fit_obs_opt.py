@@ -456,7 +456,7 @@ def main(args):
             ),
             tolerances=dict(
                 d_stellar_labels=1e-5,
-                d_log_vmacro=np.inf,
+                d_log_vmacro=1e-4,
                 d_log_vsini=np.inf,
                 d_inst_res=1e0,
                 d_rv=1e-4,
