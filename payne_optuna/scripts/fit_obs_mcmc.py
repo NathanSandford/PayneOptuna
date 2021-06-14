@@ -416,10 +416,14 @@ def main(args):
     # Teff & logg  Priors
     teff_mu = payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
     teff_sigma = payne.scale_stellar_labels(4500 * torch.ones(payne.n_stellar_labels))[0] \
-                 - payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
+        - payne.scale_stellar_labels(4450 * torch.ones(payne.n_stellar_labels))[0]
     logg_mu = payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
     logg_sigma = payne.scale_stellar_labels(0.851 * torch.ones(payne.n_stellar_labels))[1] \
-                 - payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
+        - payne.scale_stellar_labels(0.85 * torch.ones(payne.n_stellar_labels))[1]
+    teff_mu = teff_mu.detach().numpy()
+    teff_sigma = teff_sigma.detach().numpy()
+    logg_mu = logg_mu.detach().numpy()
+    logg_sigma =logg_sigma.detach().numpy()
 
     def gaussian_log_likelihood(pred, target, pred_errs, target_errs, mask):
         tot_vars = pred_errs ** 2 + target_errs ** 2
