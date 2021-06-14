@@ -448,7 +448,7 @@ def main(args):
             log_vmacro = theta[:, reverse_idx]
         else:
             log_vmacro = None
-        if args.vsini:
+        if args.fit_vsini:
             reverse_idx -= 1
             log_vsini = theta[:, reverse_idx]
         else:
