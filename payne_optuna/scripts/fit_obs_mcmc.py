@@ -446,7 +446,7 @@ def main(args):
         stellar_labels = theta[:, :model.n_stellar_labels]
         cont_coeffs = optim_fit["cont_coeffs"]
         reverse_idx = -1
-        rv = ensure_tensor(theta[:, reverse_idx])
+        rv = theta[:, reverse_idx]
         if args.fit_vmacro:
             reverse_idx -= 1
             log_vmacro = theta[:, reverse_idx]
