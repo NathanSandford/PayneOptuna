@@ -573,7 +573,7 @@ def main(args):
         tau = sampler.get_autocorr_time(tol=0)
         autocorr[index] = np.mean(tau)
         print(
-            f"{args.obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
+            f"{obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
             f"t/30Tau = {sampler.iteration / (30 * np.max(tau)):.2f}, " +
             f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
