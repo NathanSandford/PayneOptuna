@@ -492,7 +492,7 @@ def main(args):
             log_priors += gaussian_log_prior(inst_res, 1.0, 0.001)
         return log_like + log_priors
 
-    ### Run Burn-In ###
+    ### Run Burn-In 1 ###
     # Initialize Walkers
     p0_list = [optim_fit["stellar_labels"][0]]
     label_names = deepcopy(payne.labels)
@@ -543,7 +543,48 @@ def main(args):
             ax.set_ylabel(label_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
         axes[-1].set_xlabel("step number")
-        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_{args.resolution}.png"))
+        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_1_{args.resolution}.png"))
+    print('Burn-In 1 Complete')
+
+    ### Run For Real ###
+    # Initialize Walkers
+    p0 = p_mean_last + 1e-3 * np.random.randn(128, len(label_names))
+    nwalkers, ndim = p0.shape
+    # Initialize Backend
+    sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
+    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in")
+    backend.reset(nwalkers, ndim)
+    # Initialize Sampler
+    sampler = emcee.EnsembleSampler(
+        nwalkers,
+        ndim,
+        log_probability,
+        args=(payne, obs),
+        vectorize=True,
+        backend=backend,
+    )
+    # Run Sampler until walkers stop wandering
+    p_mean_last = p0.mean(0)
+    for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+        if (sampler.iteration % 100):
+            continue
+        p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
+        print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
+        if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+            p_mean_last = p_mean
+            break
+        p_mean_last = p_mean
+    if args.plot:
+        samples = sampler.get_chain()
+        fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
+        for i in range(ndim):
+            ax = axes[i]
+            ax.plot(samples[:, :, i], "k", alpha=0.3)
+            ax.set_xlim(0, len(samples))
+            ax.set_ylabel(label_names[i])
+            ax.yaxis.set_label_coords(-0.1, 0.5)
+        axes[-1].set_xlabel("step number")
+        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_2_{args.resolution}.png"))
     print('Burn-In Complete')
 
     ### Run For Real ###
