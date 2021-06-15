@@ -599,7 +599,7 @@ def main(args):
     unscaled_mean = unscaled_flat_samples.mean(axis=0)
     unscaled_std = unscaled_flat_samples.std(axis=0)
 
-    print(f"{args.obs_name} Sampling Summary:")
+    print(f"{obs_name} Sampling Summary:")
     for i, label in enumerate(label_names):
         if label == "Fe":
             print(
