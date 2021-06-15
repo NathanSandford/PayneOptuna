@@ -511,7 +511,7 @@ def main(args):
     nwalkers, ndim = p0.shape
     # Initialize Backend
     sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
-    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in")
+    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
     backend.reset(nwalkers, ndim)
     # Initialize Sampler
     sampler = emcee.EnsembleSampler(
@@ -524,6 +524,7 @@ def main(args):
     )
     # Run Sampler until walkers stop wandering
     p_mean_last = p0.mean(0)
+    converged = False
     for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
         if (sampler.iteration % 100):
             continue
@@ -531,6 +532,7 @@ def main(args):
         print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
         if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
             p_mean_last = p_mean
+            converged = True
             break
         p_mean_last = p_mean
     if args.plot:
@@ -546,50 +548,56 @@ def main(args):
         plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_1_{args.resolution}.png"))
     print('Burn-In 1 Complete')
 
-    ### Run For Real ###
-    # Initialize Walkers
-    p0 = p_mean_last + 1e-3 * np.random.randn(128, len(label_names))
-    nwalkers, ndim = p0.shape
-    # Initialize Backend
-    sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
-    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in")
-    backend.reset(nwalkers, ndim)
-    # Initialize Sampler
-    sampler = emcee.EnsembleSampler(
-        nwalkers,
-        ndim,
-        log_probability,
-        args=(payne, obs),
-        vectorize=True,
-        backend=backend,
-    )
-    # Run Sampler until walkers stop wandering
-    p_mean_last = p0.mean(0)
-    for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
-        if (sampler.iteration % 100):
-            continue
-        p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
-        print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
-        if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+    ### Run Burn-In 2 ###
+    if not converged:
+        print('')
+        # Initialize Walkers
+        last_state = sampler.get_last_sample()
+        best_walker = last_state.coords[last_state.log_prob.argmax()]
+        p0 = best_walker + 1e-3 * np.random.randn(128, len(label_names))
+        nwalkers, ndim = p0.shape
+        # Initialize Backend
+        sample_file = sample_dir.joinpath(f"{obs_name}_{args.resolution}.h5")
+        backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_2")
+        backend.reset(nwalkers, ndim)
+        # Initialize Sampler
+        sampler = emcee.EnsembleSampler(
+            nwalkers,
+            ndim,
+            log_probability,
+            args=(payne, obs),
+            vectorize=True,
+            backend=backend,
+        )
+        # Run Sampler until walkers stop wandering
+        for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+            if (sampler.iteration % 100):
+                continue
+            p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
+            print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
+            if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+                p_mean_last = p_mean
+                converged = True
+                break
             p_mean_last = p_mean
-            break
-        p_mean_last = p_mean
-    if args.plot:
-        samples = sampler.get_chain()
-        fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
-        for i in range(ndim):
-            ax = axes[i]
-            ax.plot(samples[:, :, i], "k", alpha=0.3)
-            ax.set_xlim(0, len(samples))
-            ax.set_ylabel(label_names[i])
-            ax.yaxis.set_label_coords(-0.1, 0.5)
-        axes[-1].set_xlabel("step number")
-        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_2_{args.resolution}.png"))
-    print('Burn-In Complete')
+        if args.plot:
+            samples = sampler.get_chain()
+            fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
+            for i in range(ndim):
+                ax = axes[i]
+                ax.plot(samples[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples))
+                ax.set_ylabel(label_names[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+            axes[-1].set_xlabel("step number")
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_2_{args.resolution}.png"))
+        print('Burn-In 2 Complete')
 
     ### Run For Real ###
     # Initialize Walkers
-    p0 = p_mean_last + 1e-3 * np.random.randn(512, len(label_names))
+    last_state = sampler.get_last_sample()
+    best_walker = last_state.coords[last_state.log_prob.argmax()]
+    p0 = best_walker + 1e-3 * np.random.randn(512, len(label_names))
     nwalkers, ndim = p0.shape
     # Initialize Backend
     backend = emcee.backends.HDFBackend(sample_file, name=f"{obs_name}")
