@@ -148,7 +148,7 @@ def main(args):
 
     fig = validation_plots(
         wavelength=NN_model.wavelength,
-        valid_spec=valid_spec,
+        valid_spec=train_spec,
         approx_err=approx_err_train,
         median_approx_err_star=median_approx_err_star_train,
         median_approx_err_wave=median_approx_err_wave_train,
