@@ -116,7 +116,7 @@ def main(args):
     model_spec_valid = NN_model(validation_dataset['labels']).detach().numpy()
     model_spec_train = NN_model(training_dataset['labels']).detach().numpy()
     valid_spec = validation_dataset['spectrum'].detach().numpy()
-    train_spec = validation_dataset['spectrum'].detach().numpy()
+    train_spec = training_dataset['spectrum'].detach().numpy()
     approx_err_valid = np.abs(model_spec_valid - valid_spec)
     approx_err_train = np.abs(model_spec_train - train_spec)
     median_approx_err_star_valid = np.median(approx_err_valid, axis=1)
