@@ -113,10 +113,10 @@ def main(args):
     training_dataset = datamodule.training_dataset.dataset.__getitem__(sorted(datamodule.training_dataset.indices))
 
     # Perform Validation
-    model_spec_valid = NN_model(validation_dataset['labels'].T).detach().numpy()
-    model_spec_train = NN_model(training_dataset['labels'].T).detach().numpy()
-    valid_spec = validation_dataset['spectrum'].T.detach().numpy()
-    train_spec = validation_dataset['spectrum'].T.detach().numpy()
+    model_spec_valid = NN_model(validation_dataset['labels']).detach().numpy()
+    model_spec_train = NN_model(training_dataset['labels']).detach().numpy()
+    valid_spec = validation_dataset['spectrum'].detach().numpy()
+    train_spec = validation_dataset['spectrum'].detach().numpy()
     approx_err_valid = np.abs(model_spec_valid - valid_spec)
     approx_err_train = np.abs(model_spec_train - train_spec)
     median_approx_err_star_valid = np.median(approx_err_valid, axis=1)
