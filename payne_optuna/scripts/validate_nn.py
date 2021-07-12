@@ -73,7 +73,8 @@ def main(args):
     ckpt_dir = model_dir.joinpath("ckpts")
     ckpt_file = sorted(list(ckpt_dir.glob('*.ckpt')))[-1]
     results_file = model_dir.joinpath('validation_results.npz')
-    figure_file = model_dir.joinpath('validation_results.png')
+    figure_file_valid = model_dir.joinpath('validation_results_valid.png')
+    figure_file_train = model_dir.joinpath('validation_results_train.png')
     big_dataset = configs["training"]["big_dataset"]
     if big_dataset:
         input_path = input_dir
@@ -108,29 +109,49 @@ def main(args):
         big_dataset=big_dataset,
     )
     datamodule.setup()
-    validation_dataset = datamodule.validation_dataset.dataset.__getitem__(datamodule.validation_dataset.indices)
+    validation_dataset = datamodule.validation_dataset.dataset.__getitem__(sorted(datamodule.validation_dataset.indices))
+    training_dataset = datamodule.training_dataset.dataset.__getitem__(sorted(datamodule.training_dataset.indices))
 
     # Perform Validation
-    model_spec = NN_model(validation_dataset['labels'].T).detach().numpy()
+    model_spec_valid = NN_model(validation_dataset['labels'].T).detach().numpy()
+    model_spec_train = NN_model(training_dataset['labels'].T).detach().numpy()
     valid_spec = validation_dataset['spectrum'].T.detach().numpy()
-    approx_err = np.abs(model_spec - valid_spec)
-    median_approx_err_star = np.median(approx_err, axis=1)
-    median_approx_err_wave = np.median(approx_err, axis=0)
-    twosigma_approx_err_wave = np.quantile(approx_err, q=0.9545, axis=0)
+    train_spec = validation_dataset['spectrum'].T.detach().numpy()
+    approx_err_valid = np.abs(model_spec_valid - valid_spec)
+    approx_err_train = np.abs(model_spec_train - train_spec)
+    median_approx_err_star_valid = np.median(approx_err_valid, axis=1)
+    median_approx_err_wave_valid = np.median(approx_err_valid, axis=0)
+    median_approx_err_star_train = np.median(approx_err_train, axis=1)
+    median_approx_err_wave_train = np.median(approx_err_train, axis=0)
+    twosigma_approx_err_wave_valid = np.quantile(approx_err_valid, q=0.9545, axis=0)
+    twosigma_approx_err_wave_train = np.quantile(approx_err_train, q=0.9545, axis=0)
 
     np.savez(
         results_file,
-        median_approx_err_star=median_approx_err_star,
-        median_approx_err_wave=median_approx_err_wave,
-        twosigma_approx_err_wave=twosigma_approx_err_wave,
+        median_approx_err_star_valid=median_approx_err_star_valid,
+        median_approx_err_wave_valid=median_approx_err_wave_valid,
+        twosigma_approx_err_wave_valid=twosigma_approx_err_wave_valid,
+        median_approx_err_star_train=median_approx_err_star_train,
+        median_approx_err_wave_train=median_approx_err_wave_train,
+        twosigma_approx_err_wave_train=twosigma_approx_err_wave_train,
     )
 
     fig = validation_plots(
         wavelength=NN_model.wavelength,
         valid_spec=valid_spec,
-        approx_err=approx_err,
-        median_approx_err_star=median_approx_err_star,
-        median_approx_err_wave=median_approx_err_wave,
-        twosigma_approx_err_wave=twosigma_approx_err_wave
+        approx_err=approx_err_valid,
+        median_approx_err_star=median_approx_err_star_valid,
+        median_approx_err_wave=median_approx_err_wave_valid,
+        twosigma_approx_err_wave=twosigma_approx_err_wave_valid,
     )
-    fig.savefig(figure_file)
+    fig.savefig(figure_file_valid)
+
+    fig = validation_plots(
+        wavelength=NN_model.wavelength,
+        valid_spec=valid_spec,
+        approx_err=approx_err_train,
+        median_approx_err_star=median_approx_err_star_train,
+        median_approx_err_wave=median_approx_err_wave_train,
+        twosigma_approx_err_wave=twosigma_approx_err_wave_train,
+    )
+    fig.savefig(figure_file_train)
