@@ -97,6 +97,10 @@ def main(args):
     pl.seed_everything(configs["training"]["random_state"])
 
     # Initialize DataModule
+    try:
+        input_dir.joinpath('virtual_dataset.h5').unlink()
+    except FileNotFoundError:
+        pass
     datamodule = PayneDataModule(
         input_path=input_path,
         labels_to_train_on=configs["training"]["labels"],
