@@ -120,7 +120,7 @@ def get_det_mask(obs, mask_left_pixels=64, mask_right_pixels=128, masks_by_order
     # Mask All Right Detector Edges
     det_mask[:, -mask_right_pixels:det_mask.shape[1]] = False
     # Mask Individual Orders by Wavelength
-    for mask, order_mask in masks_by_order_wave:
+    for mask, order_mask in masks_by_order_wave.items():
         for order, cutoff in order_mask.items():
             for min_max, wave in cutoff.items():
                 if min_max == "min":
