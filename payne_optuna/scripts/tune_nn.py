@@ -79,7 +79,7 @@ class Objective:
         self.labels_to_train_on = configs["training"]["labels"]
         self.iron_scale = configs["training"]["iron_scale"]
         self.train_fraction = configs["training"]["train_fraction"]
-        self.batchsize = configs["training"]["batchsize"]
+        # self.batchsize = configs["training"]["batchsize"]
         self.epochs = configs["training"]["epochs"]
         self.patience = configs["training"]["patience"]
         self.precision = configs["training"]["precision"]
@@ -143,7 +143,7 @@ class Objective:
             labels_to_train_on=self.labels_to_train_on,
             train_fraction=self.train_fraction,
             iron_scale=self.iron_scale,
-            batchsize=self.batchsize,
+            batchsize=2**trial.suggest_int("n_layers", 6, 10),
             dtype=self.dtype,
             num_workers=0,
             pin_memory=False,
