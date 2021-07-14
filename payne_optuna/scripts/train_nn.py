@@ -113,7 +113,12 @@ def main(args):
     if args.checkpoint:
         checkpoint = ckpt_dir.joinpath(args.checkpoint)
     elif args.resume:
-        checkpoint = sorted(list(ckpt_dir.glob("*.ckpt")))[-1]
+        all_ckpts = sorted(list(ckpt_dir.glob("*.ckpt")))
+        if len(all_ckpts) > 0:
+            checkpoint = all_ckpts[-1]
+        else:
+            print('No checkpoint to resume; beginning training from scratch')
+            checkpoint = None
     else:
         checkpoint = None
 
