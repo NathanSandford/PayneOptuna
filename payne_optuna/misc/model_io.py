@@ -29,7 +29,10 @@ def load_model(config_file):
     try:
         validation_file = model_dir.joinpath('validation_results.npz')
         with np.load(validation_file) as tmp:
-            nn_model.mod_errs = tmp['median_approx_err_wave_valid']
+            try:
+                nn_model.mod_errs = tmp['median_approx_err_wave_valid']
+            except KeyError:
+                nn_model.mod_errs = tmp['median_approx_err_wave']
     except FileNotFoundError:
         print('validation_results.npz does not exist; assuming zero model error.')
         nn_model.mod_errs = np.zeros_like(nn_model.wavelength)
