@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 import yaml
 import torch
+import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from payne_optuna.model import LightningPaynePerceptron
@@ -115,7 +116,8 @@ def main(args):
     elif args.resume:
         all_ckpts = sorted(list(ckpt_dir.glob("*.ckpt")))
         if len(all_ckpts) > 0:
-            checkpoint = all_ckpts[-1]
+            idx = np.argmin([float(ckpt.name.split('=')[-1].split('ckpt')[0][:-1]) for ckpt in all_ckpts])
+            checkpoint = all_ckpts[idx]
         else:
             print('No checkpoint to resume; beginning training from scratch')
             checkpoint = None
@@ -128,7 +130,8 @@ def main(args):
         logger=logger,
         profiler=True,
         max_epochs=configs["training"]["epochs"],
-        gpus=1 if torch.cuda.is_available() else None,
+        accelerator='ddp',
+        gpus=-1 if torch.cuda.is_available() else None,
         precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
         progress_bar_refresh_rate=0,
