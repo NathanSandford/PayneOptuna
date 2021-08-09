@@ -9,7 +9,6 @@ def load_model(config_file):
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
     print(f'Loading Model {model_name}')
-    input_dir = Path(configs["paths"]["input_dir"])
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
