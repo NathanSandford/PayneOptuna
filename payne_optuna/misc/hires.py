@@ -69,7 +69,11 @@ def load_spectrum(
             obs_errs[i] = hdul[order_ext].data[f'{extraction.upper()}_COUNTS_SIG']
             obs_mask[i] = hdul[order_ext].data[f'{extraction.upper()}_MASK']
             if flats is not None:
-                obs_blaz[i] = flats[obs_dets[i]].get_blaze(obs_spat[i], std=1e5)
+                try:
+                    obs_blaz[i] = flats[obs_dets[i]].get_blaze(obs_spat[i], std=1e5)
+                except:
+                    print(f'Flat Failed for order {obs_ords[i]} --- Adopting flat blaze')
+                    obs_blaz[i] = 1.0
         if vel_correction is not None:
             vel_corr_factor = get_geomotion_correction(
                 radec=SkyCoord(ra=header['RA'], dec=header['DEC'], unit=(u.deg, u.deg)),
@@ -116,9 +120,11 @@ def get_ovrlp_mask(obs):
 def get_det_mask(obs, mask_left_pixels=64, mask_right_pixels=128, masks_by_order_wave={}):
     det_mask = np.ones_like(obs['mask'], dtype=bool)
     # Mask All Left Detector Edges
-    det_mask[:, 0:mask_left_pixels] = False
+    if mask_left_pixels > 0:
+        det_mask[:, 0:mask_left_pixels] = False
     # Mask All Right Detector Edges
-    det_mask[:, -mask_right_pixels:det_mask.shape[1]] = False
+    if mask_right_pixels > 0:
+        det_mask[:, -mask_right_pixels:det_mask.shape[1]] = False
     # Mask Individual Orders by Wavelength
     for mask, order_mask in masks_by_order_wave.items():
         for order, cutoff in order_mask.items():
@@ -127,8 +133,11 @@ def get_det_mask(obs, mask_left_pixels=64, mask_right_pixels=128, masks_by_order
                     det_mask[(obs['ords'] == order)[:, np.newaxis] & (obs['wave'] < wave)] = False
                 elif min_max == "max":
                     det_mask[(obs['ords'] == order)[:, np.newaxis] & (obs['wave'] > wave)] = False
+                elif min_max == "minmax":
+                    det_mask[(obs['ords'] == order)[:, np.newaxis] & (obs['wave'] > wave[0]) & (
+                                obs['wave'] < wave[1])] = False
                 else:
-                    raise KeyError(f"Key must be 'min' or 'max' not {min_max}")
+                    raise KeyError(f"Key must be 'min', 'max', or 'min_max' --- not {min_max}")
     return det_mask
 
 
