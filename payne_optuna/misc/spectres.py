@@ -23,7 +23,7 @@ def make_bins(wavs):
     return edges, widths
 
 
-def spectres(new_wavs, spec_wavs, spec_fluxes, spec_errs=None, fill_flux=None, fill_errs=None,
+def spectres(new_wavs, spec_wavs, spec_fluxes, spec_errs=None, fill_flux=None, fill_errs=None, bin_errs=True,
              verbose=True):
     """
     Function for resampling spectra (and optionally associated
@@ -132,7 +132,7 @@ def spectres(new_wavs, spec_wavs, spec_fluxes, spec_errs=None, fill_flux=None, f
             new_fluxes[..., j] = np.sum(f_widths, axis=-1)
             new_fluxes[..., j] /= np.sum(old_widths[start:stop+1])
 
-            if old_errs is not None:
+            if old_errs is not None and bin_errs:
                 e_wid = old_widths[start:stop+1]*old_errs[..., start:stop+1]
 
                 new_errs[..., j] = np.sqrt(np.sum(e_wid**2, axis=-1))
