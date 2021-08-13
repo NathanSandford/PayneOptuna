@@ -398,7 +398,7 @@ class PayneEmulator(torch.nn.Module):
             return intp_flux * cont_flux, torch.zeros_like(intp_flux)
 
 
-class CompositePayneEmulator(PayneEmulator):
+class CompositePayneEmulator(torch.nn.Module):
     def __init__(
             self,
             models: List[torch.nn.Module],
