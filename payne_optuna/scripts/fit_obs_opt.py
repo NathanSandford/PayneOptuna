@@ -23,6 +23,11 @@ def parse_args(options=None):
     """
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum w/ Optimizer")
     parser.add_argument("fitting_configs", help="Config File describing the fitting procedure")
+    if options is None:
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args(options)
+    return args
 
 
 def main(args):
