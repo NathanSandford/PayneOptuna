@@ -91,7 +91,7 @@ def main(args):
     print(f'Loading {obs_spec_file.name}')
     if isinstance(orders, str) and orders.lower() == 'all':
         orders_to_fit = hires.get_all_order_numbers(obs_spec_file)
-    elif np.any(np.array(orders) < 0):
+    elif np.any(np.array(orders, dtype=int) < 0):
         orders_to_fit = hires.get_all_order_numbers(obs_spec_file)
         for order in orders:
             orders_to_fit = np.delete(orders_to_fit, np.argwhere(np.abs(order) == orders_to_fit))
@@ -169,7 +169,7 @@ def main(args):
         # Load Models
     models = []
     for i, model_config_file in enumerate(model_config_files):
-        if np.any(np.array(orders) < 0):
+        if np.any(np.array(orders, dtype=int) < 0):
             if str(int(np.abs(orders))) in str(model_config_file):
                 print(f'Skipping Model {model_config_file.name[:-4]}')
                 continue
