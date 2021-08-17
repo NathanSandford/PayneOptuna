@@ -169,7 +169,9 @@ def main(args):
         # Load Models
     models = []
     for i, model_config_file in enumerate(model_config_files):
-        if np.any(np.array(orders, dtype=int) < 0):
+        if isinstance(orders, str) and orders.lower() == 'all':
+            pass
+        elif np.any(np.array(orders, dtype=int) < 0):
             if str(int(np.abs(orders))) in str(model_config_file):
                 print(f'Skipping Model {model_config_file.name[:-4]}')
                 continue
