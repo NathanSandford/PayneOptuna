@@ -68,6 +68,7 @@ def main(args):
     obs_dir = program_dir.joinpath(f'obs/{star}_{date}')
     mask_dir = program_dir.joinpath('masks')
     fig_dir = program_dir.joinpath(f'figures/{star}_{date}')
+    fig_dir.mkdir(parents=True, exist_ok=True)
     fits_dir = program_dir.joinpath(f'fits/{star}_{date}')
     model_config_files = sorted(list(model_config_dir.glob('*')))
     flat_files = sorted(list(flats_dir.glob('*')))
@@ -182,9 +183,9 @@ def main(args):
         model.mod_errs = np.sqrt(model.mod_errs ** 2 + nlte_errs[i] ** 2)
         models.append(model)
     # Determine Model Breaks
-    model_bounds = model_io.find_model_breaks(models, obs)
-    print('Model bounds determined to be:')
-    [print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
+    #model_bounds = model_io.find_model_breaks(models, obs)
+    #print('Model bounds determined to be:')
+    #[print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
     # Initialize Emulator
     payne = PayneOrderEmulator(
         models=models,
