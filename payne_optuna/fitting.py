@@ -262,8 +262,8 @@ class PayneEmulator(torch.nn.Module):
         return flux_conv.squeeze(), errs_conv.squeeze()
 
     def scale_stellar_labels(self, unscaled_labels):
-        x_min = np.array(list(self.model.x_min.values()))
-        x_max = np.array(list(self.model.x_max.values()))
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
         return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
 
     def unscale_stellar_labels(self, scaled_labels):
