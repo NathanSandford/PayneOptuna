@@ -265,6 +265,7 @@ def main(args):
         obs['conv_spec'] = spec_ds
         obs['conv_errs'] = errs_ds
         obs['conv_mask'] = mask_ds
+        payne.obs_wave = wave_ds
     else:
         print('Using default resolution')
 
