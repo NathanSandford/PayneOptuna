@@ -1041,6 +1041,10 @@ class PayneOrderEmulator(PayneEmulator):
         return y_new.view(n_spec, n_ords, n_pix_new)
 
     def interp_flux(self, old_wave, new_wave, flux, errs):
+        if (flux.shape[0] == 1) and (old_wave.shape[0] > 1):
+            flux = flux.repeat(old_wave.shape[0], 1, 1)
+        elif (flux.shape[0] != old_wave.shape[0]):
+            raise RuntimeError("RV input and stellar label input have conflicting shapes")
         intp_flux = self.interp(
             x_old=old_wave,
             x_new=new_wave,
