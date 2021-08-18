@@ -1052,6 +1052,10 @@ class PayneOrderEmulator(PayneEmulator):
             fill=1.0,
         )
         if errs is not None:
+            if (errs.shape[0] == 1) and (old_wave.shape[0] > 1):
+                errs = errs.repeat(old_wave.shape[0], 1, 1)
+            elif (errs.shape[0] != old_wave.shape[0]):
+                raise RuntimeError("RV input and stellar label input have conflicting shapes")
             intp_errs = self.interp(
                 x_old=old_wave,
                 x_new=new_wave,
