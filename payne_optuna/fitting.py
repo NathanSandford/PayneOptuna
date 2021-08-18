@@ -838,11 +838,6 @@ class PayneOrderEmulator(PayneEmulator):
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix = self.obs_wave.shape[1]
 
-    def unscale_stellar_labels(self, scaled_labels):
-        x_min = np.array(list(self.stellar_labels_min))
-        x_max = np.array(list(self.stellar_labels_max))
-        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
-
     def set_obs_wave(self, obs_wave):
         self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
@@ -1076,6 +1071,16 @@ class PayneOrderEmulator(PayneEmulator):
         else:
             intp_errs = None
         return intp_flux, intp_errs
+
+    def scale_stellar_labels(self, unscaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
+
+    def unscale_stellar_labels(self, scaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
 
     def forward_model_spec(self, norm_flux, norm_errs, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         raise NotImplementedError
