@@ -838,6 +838,13 @@ class PayneOrderEmulator(PayneEmulator):
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix = self.obs_wave.shape[1]
 
+    def set_obs_wave(self, obs_wave):
+        self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
+        scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
+        self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
+        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
+
+
     @staticmethod
     def inst_vmacro_iso_broaden_fft(wave, flux, errs, inst_res, vmacro, model_res=None):
         n_spec = flux.shape[0]

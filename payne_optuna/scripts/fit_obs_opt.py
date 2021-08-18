@@ -212,11 +212,20 @@ def main(args):
                 obs['wave'][i][obs['pix_mask'][i]],
                 obs['spec'][i][obs['pix_mask'][i]],
             )
-            # Convolve Flux and Errors
+        # Convolve Flux and Errors
         conv_obs_flux, conv_obs_errs = payne.inst_broaden(
             wave=ensure_tensor(obs['wave'], precision=torch.float64),
             flux=ensure_tensor(masked_spec).unsqueeze(0),
             errs=ensure_tensor(obs['raw_errs']).unsqueeze(0),
+            inst_res=ensure_tensor(int(resolution)),
+            model_res=ensure_tensor(default_res),
+        )
+
+        # Convolve Blaze Function
+        conv_obs_blaz, _ = payne.inst_broaden(
+            wave=ensure_tensor(obs['wave'], precision=torch.float64),
+            flux=ensure_tensor(obs['scaled_blaz']).unsqueeze(0),
+            errs=None,
             inst_res=ensure_tensor(int(resolution)),
             model_res=ensure_tensor(default_res),
         )
@@ -235,6 +244,7 @@ def main(args):
         wave_ds = np.zeros((n_ord, n_pix))
         spec_ds = np.zeros((n_ord, n_pix))
         errs_ds = np.zeros((n_ord, n_pix))
+        blaz_ds = np.zeros((n_ord, n_pix))
         mask1_ds = np.zeros((n_ord, n_pix))
         mask2_ds = np.zeros((n_ord, n_pix))
         for i in range(n_ord):
@@ -246,6 +256,14 @@ def main(args):
                 conv_obs_errs[0, i].detach().numpy(),
                 fill_flux=conv_obs_flux[0, i,  -1].detach().numpy(),
                 fill_errs=conv_obs_errs[0, i, -1].detach().numpy(),
+                bin_errs=bin_errors,
+                verbose=False,
+            )
+            blaz_ds[i] = spectres(
+                wave_ds[i],
+                obs['wave'][i],
+                conv_obs_blaz[0, i].detach().numpy(),
+                fill_flux=conv_obs_blaz[0, i, -1].detach().numpy(),
                 bin_errs=bin_errors,
                 verbose=False,
             )
@@ -264,8 +282,10 @@ def main(args):
         obs['conv_wave'] = wave_ds
         obs['conv_spec'] = spec_ds
         obs['conv_errs'] = errs_ds
+        obs['conv_blaz'] = blaz_ds
         obs['conv_mask'] = mask_ds
-        payne.obs_wave = wave_ds
+        payne.set_obs_wave(wave_ds)
+        payne.obs_blaz = ensure_tensor(blaz_ds)
     else:
         print('Using default resolution')
 
