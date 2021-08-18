@@ -860,7 +860,7 @@ class PayneOrderEmulator(PayneEmulator):
         sigma_vmacro = vmacro.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1)
         sigma_tot = torch.sqrt(sigma_inst ** 2 + sigma_vmacro ** 2)
         sigma_freq = sigma_tot * freq.repeat(n_spec, 1)
-        kernel = np.exp(-2 * (np.pi * sigma_freq) ** 2)
+        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
         flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
         flux_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
@@ -884,7 +884,7 @@ class PayneOrderEmulator(PayneEmulator):
         sigma_in = 0.0 if model_res is None else 2.99792458e5 / (model_res * 2.355)
         sigma = torch.sqrt(sigma_out ** 2 - sigma_in ** 2)
         sigma_freq = sigma.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1) * freq.repeat(n_spec, 1)
-        kernel = np.exp(-2 * (np.pi * sigma_freq) ** 2)
+        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
         flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
         flux_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
@@ -1220,7 +1220,7 @@ class PayneStitchedEmulator(PayneEmulator):
         sigma_vmacro = vmacro.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1)
         sigma_tot = torch.sqrt(sigma_inst ** 2 + sigma_vmacro ** 2)
         sigma_freq = sigma_tot * freq.repeat(n_spec, 1)
-        kernel = np.exp(-2 * (np.pi * sigma_freq) ** 2)
+        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
         flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
         flux_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
@@ -1244,7 +1244,7 @@ class PayneStitchedEmulator(PayneEmulator):
         sigma_in = 0.0 if model_res is None else 2.99792458e5 / (model_res * 2.355)
         sigma = torch.sqrt(sigma_out ** 2 - sigma_in ** 2)
         sigma_freq = sigma.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1) * freq.repeat(n_spec, 1)
-        kernel = np.exp(-2 * (np.pi * sigma_freq) ** 2)
+        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
         flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
         flux_ff *= kernel
         flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
