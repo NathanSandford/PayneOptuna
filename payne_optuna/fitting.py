@@ -1094,6 +1094,7 @@ class PayneOrderEmulator(PayneEmulator):
             norm_flux[:, i, :] = model(stellar_labels)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
         if (inst_res is not None) and (vmacro is not None) and (self.vmacro_method == 'iso_fft'):
+            # Instrumental + Macroturbulent Broadening
             conv_flux, conv_errs = self.inst_vmacro_iso_broaden_fft(
                 wave=self.mod_wave,
                 flux=norm_flux,
