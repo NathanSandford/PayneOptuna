@@ -574,12 +574,12 @@ def main(args):
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
-            plt.savefig(fig_dir.joinpath(f'{obs_name}_convergence_{args.resolution}_{n + 1}.png'))
+            plt.savefig(fig_dir.joinpath(f'{obs_name}_convergence_{resolution}_{n + 1}.png'))
 
         # Plot Fits
         if configs['output']['plot_fit']:
             print('Plotting Fits')
-            if args.resolution == "default":
+            if resolution == "default":
                 chi2 = ((optimizer.best_model[0].detach().numpy() - obs['spec']) / (
                     np.sqrt(optimizer.best_model_errs[0].detach().numpy() ** 2 + obs['errs'] ** 2))) ** 2
             else:
@@ -593,19 +593,19 @@ def main(args):
                 ax2 = plt.subplot(gs[1, 0], sharex=ax1)
 
                 plt.title(
-                    f"{obs_name}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}, Resolution: {args.resolution}",
+                    f"{obs_name}, Detector: {int(obs['dets'][i])}, Order: {int(obs['ords'][i])}, Resolution: {resolution}",
                     fontsize=48)
-                if args.resolution == "default":
+                if resolution == "default":
                     ax1.scatter(obs['wave'][i][obs['mask'][i]], obs['spec'][i][obs['mask'][i]], c='k', marker='.',
                                 alpha=0.8, )
                     ax2.scatter(obs['wave'][i][obs['mask'][i]], chi2[i][obs['mask'][i]], c='k', marker='.',
                                 alpha=0.8, )
                 else:
-                    ax1.scatter(obs['wave'][i][obs['conv_mask'][i]], obs['conv_spec'][i][obs['conv_mask'][i]],
+                    ax1.scatter(obs['conv_wave'][i][obs['conv_mask'][i]], obs['conv_spec'][i][obs['conv_mask'][i]],
                                 c='k', marker='.', alpha=0.8, )
-                    ax2.scatter(obs['wave'][i][obs['conv_mask'][i]], chi2[i][obs['conv_mask'][i]], c='k',
+                    ax2.scatter(obs['conv_wave'][i][obs['conv_mask'][i]], chi2[i][obs['conv_mask'][i]], c='k',
                                 marker='.', alpha=0.8, )
-                ax1.plot(obs['wave'][i], optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
+                ax1.plot(optimizer.obs_wave[0, i].detach().numpy(), optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
                 ax1.set_ylabel('Flux [Counts]', fontsize=36)
                 ax2.set_ylabel('Chi2', fontsize=36)
                 ax2.set_xlabel('Wavelength [A]', fontsize=36)
