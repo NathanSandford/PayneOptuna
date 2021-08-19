@@ -605,7 +605,7 @@ def main(args):
                                 c='k', marker='.', alpha=0.8, )
                     ax2.scatter(obs['conv_wave'][i][obs['conv_mask'][i]], chi2[i][obs['conv_mask'][i]], c='k',
                                 marker='.', alpha=0.8, )
-                ax1.plot(optimizer.obs_wave[0, i].detach().numpy(), optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
+                ax1.plot(optimizer.obs_wave[i].detach().numpy(), optimizer.best_model[0, i].detach().numpy(), c='r', alpha=0.8)
                 ax1.set_ylabel('Flux [Counts]', fontsize=36)
                 ax2.set_ylabel('Chi2', fontsize=36)
                 ax2.set_xlabel('Wavelength [A]', fontsize=36)
