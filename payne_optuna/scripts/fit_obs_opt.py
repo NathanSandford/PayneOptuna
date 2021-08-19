@@ -183,6 +183,8 @@ def main(args):
         # Mask NLTE Lines
         model.mod_errs = np.sqrt(model.mod_errs ** 2 + nlte_errs[i] ** 2)
         models.append(model)
+    # Sort Models by Ascending Wavelength
+    models = [models[i] for i in np.argsort([model.wavelength.min() for model in models])]
     # Determine Model Breaks
     #model_bounds = model_io.find_model_breaks(models, obs)
     #print('Model bounds determined to be:')
@@ -309,6 +311,7 @@ def main(args):
                 alpha=0.8, marker='.', s=1, c='k', label='Observed Spectrum'
             )
             if resolution != "default":
+                ax.plot(obs['conv_wave'][j], obs['conv_blaz'][j], alpha=0.8, c='r', ls='--')
                 ax.scatter(
                     obs['conv_wave'][j],
                     obs['conv_spec'][j],
@@ -518,7 +521,7 @@ def main(args):
             'loss': optimizer.loss,
         }
         np.savez(
-            fits_dir.joinpath(f'{obs_name}_fit_{resolution}_{n + 1}.npz'),
+            fits_dir.joinpath(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}_{n + 1}.npz"),
             **optim_fit
         )
 
@@ -574,7 +577,7 @@ def main(args):
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
-            plt.savefig(fig_dir.joinpath(f'{obs_name}_convergence_{resolution}_{n + 1}.png'))
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}_{n + 1}.png"))
 
         # Plot Fits
         if configs['output']['plot_fit']:
@@ -613,7 +616,7 @@ def main(args):
                 ax1.tick_params('y', labelsize=36)
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
-                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{int(obs['ords'][i])}.png"))
+                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}_{int(obs['ords'][i])}_{n + 1}.png"))
 
             print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
             del optimizer
