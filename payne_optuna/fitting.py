@@ -1681,6 +1681,7 @@ class PayneOptimizer:
                     c='r', alpha=0.8
                 )
                 plt.show()
+                plt.close('all')
             c0[:, i] = ensure_tensor(p.coef)
         return [c0[i] for i in range(self.n_cont_coeffs)]
 
@@ -1961,6 +1962,7 @@ class PayneOptimizer:
                                 c='k', marker='.', alpha=0.8)
                     ax1.tick_params('x', labelsize=0)
                     plt.show()
+                    plt.close('all')
             epoch += 1
 
         # Recover Best Epoch

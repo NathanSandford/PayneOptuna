@@ -360,6 +360,7 @@ def main(args):
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
         plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}.png'))
+        plt.close('all')
 
     ########################
     ######## PRIORS ########
@@ -578,6 +579,7 @@ def main(args):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
             plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}_{n + 1}.png"))
+            plt.close('all')
 
         # Plot Fits
         if configs['output']['plot_fit']:
@@ -617,6 +619,7 @@ def main(args):
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
                 plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}_{int(obs['ords'][i])}_{n + 1}.png"))
+                plt.close('all')
 
             print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
             del optimizer
