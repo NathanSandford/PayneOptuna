@@ -624,4 +624,6 @@ def main(args):
             print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
             del optimizer
             del optim_fit
+            plt.close('all')
             gc.collect()
+
