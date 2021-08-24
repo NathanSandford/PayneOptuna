@@ -93,3 +93,10 @@ def airtovac(wavelength):
     new_wave = wavelength*u.AA
     new_wave.to(wave.unit)
     return new_wave.value
+
+
+def noise_up_spec(D0, sigma_D0, factor):
+    sigma = np.sqrt(factor**2 - 1) * sigma_D0
+    D = np.random.normal(D0, sigma)
+    sigma_D = np.sqrt(sigma_D0**2 + sigma**2)
+    return D, sigma_D
