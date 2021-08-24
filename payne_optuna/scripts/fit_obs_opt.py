@@ -367,28 +367,65 @@ def main(args):
     ########################
     # Set Priors
     print('Setting Priors')
-    teff_mu = configs['fitting']['priors']['Teff'][0]
-    teff_sigma = configs['fitting']['priors']['Teff'][1]
-    teff_mu_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0]
-    teff_sigma_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0] \
-                 - payne.scale_stellar_labels(teff_mu-teff_sigma * torch.ones(payne.n_stellar_labels))[0]
-    logg_mu = configs['fitting']['priors']['logg'][0]
-    logg_sigma = configs['fitting']['priors']['logg'][1]
-    logg_mu_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1]
-    logg_sigma_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1] \
-                 - payne.scale_stellar_labels(logg_mu-logg_sigma * torch.ones(payne.n_stellar_labels))[1]
-    print(f'Teff Priors = {teff_mu:0.0f} +/- {teff_sigma:0.1f} ({teff_mu_scaled:0.2f} +/- {teff_sigma_scaled:0.2f})')
-    print(f'logg Priors = {logg_mu:0.2f} +/- {logg_sigma:0.3f} ({logg_mu_scaled:0.2f} +/- {logg_sigma_scaled:0.2f})')
+    stellar_label_priors = []
+    for i, label in enumerate(payne.labels):
+        if label in configs['fitting']['priors']:
+            if configs['fitting']['priors'][label][0] == 'N':
+                stellar_label_priors.append(
+                    GaussianLogPrior(
+                        label,
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2]
+                    )
+                )
+            elif configs['fitting']['priors'][label][0] == 'U':
+                stellar_label_priors.append(
+                    UniformLogPrior(
+                        label,
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2]
+                    )
+                )
+            else:
+                raise KeyError(f"Cannot parse prior info for {label}")
+        else:
+            stellar_label_priors.append(
+                UniformLogPrior(
+                    label,
+                    payne.unscale_stellar_labels(-0.55 * torch.ones(payne.n_stellar_labels))[i],
+                    payne.unscale_stellar_labels(0.55 * torch.ones(payne.n_stellar_labels))[i],
+                )
+            )
     priors = {
-        'stellar_labels': [
-                              GaussianLogPrior('Teff', teff_mu_scaled, teff_sigma_scaled),
-                              GaussianLogPrior('logg', logg_mu_scaled, logg_sigma_scaled)
-                          ] + [UniformLogPrior(lab, -0.55, 0.55) for lab in payne.labels[2:]],
+        "stellar_labels": stellar_label_priors,
         'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3),
         'log_vsini': FlatLogPrior('log_vsini'),
         'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
         GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
     }
+    #print('Setting Priors')
+    #teff_mu = configs['fitting']['priors']['Teff'][0]
+    #teff_sigma = configs['fitting']['priors']['Teff'][1]
+    #teff_mu_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0]
+    #teff_sigma_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0] \
+    #             - payne.scale_stellar_labels(teff_mu-teff_sigma * torch.ones(payne.n_stellar_labels))[0]
+    #logg_mu = configs['fitting']['priors']['logg'][0]
+    #logg_sigma = configs['fitting']['priors']['logg'][1]
+    #logg_mu_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1]
+    #logg_sigma_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1] \
+    #             - payne.scale_stellar_labels(logg_mu-logg_sigma * torch.ones(payne.n_stellar_labels))[1]
+    #print(f'Teff Priors = {teff_mu:0.0f} +/- {teff_sigma:0.1f} ({teff_mu_scaled:0.2f} +/- {teff_sigma_scaled:0.2f})')
+    #print(f'logg Priors = {logg_mu:0.2f} +/- {logg_sigma:0.3f} ({logg_mu_scaled:0.2f} +/- {logg_sigma_scaled:0.2f})')
+    #priors = {
+    #    'stellar_labels': [
+    #                          GaussianLogPrior('Teff', teff_mu_scaled, teff_sigma_scaled),
+    #                          GaussianLogPrior('logg', logg_mu_scaled, logg_sigma_scaled)
+    #                      ] + [UniformLogPrior(lab, -0.55, 0.55) for lab in payne.labels[2:]],
+    #    'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3),
+    #    'log_vsini': FlatLogPrior('log_vsini'),
+    #    'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
+    #    GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
+    #}
 
     #############################
     ######## FIT SPECTRA ########
@@ -437,13 +474,55 @@ def main(args):
         )
         # Initializing Parameters
         print('Initializing Labels')
-        stellar_labels0 = torch.FloatTensor(1, payne.n_stellar_labels).uniform_(-0.5, 0.5)
-        with torch.no_grad():
-            stellar_labels0[:, 0] = teff_mu_scaled
-            stellar_labels0[:, 1] = logg_mu_scaled
+        stellar_labels0 = torch.zeros(1, payne.n_stellar_labels)
+        if configs['fitting']['priors']['Fe'][0] == 'N':
+            fe0 = np.random.normal(
+                configs['fitting']['priors']['Fe'][1],
+                configs['fitting']['priors']['Fe'][2],
+            )
+        elif configs['fitting']['priors']['Fe'][0] == 'U':
+            fe0 = np.random.uniform(
+                configs['fitting']['priors']['Fe'][1],
+                configs['fitting']['priors']['Fe'][2],
+            )
+        for i, label in enumerate(payne.labels):
+            if label in configs['fitting']['priors']:
+                if configs['fitting']['priors'][label][0] == 'N':
+                    x0 = np.random.normal(
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2],
+                    )
+                elif configs['fitting']['priors'][label][0] == 'U':
+                    x0 = np.random.uniform(
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2],
+                    )
+                else:
+                    raise KeyError(f"Cannot parse prior info for {label}")
+                if label == 'Fe':
+                    x0 = fe0
+                elif label not in ['Teff', 'logg', 'v_micro', 'Fe']:
+                    x0 += fe0
+                x0 = payne.scale_stellar_labels(
+                    x0 * torch.ones(payne.n_stellar_labels)
+                )[i]
+            else:
+                x0 = np.random.uniform(
+                    -0.55,
+                    0.55,
+                )
+            with torch.no_grad():
+                stellar_labels0[:, i] = ensure_tensor(x0)
+        #print('Initializing Labels')
+        #stellar_labels0 = torch.FloatTensor(1, payne.n_stellar_labels).uniform_(-0.5, 0.5)
+        #with torch.no_grad():
+        #    stellar_labels0[:, 0] = teff_mu_scaled
+        #    stellar_labels0[:, 1] = logg_mu_scaled
         if not configs['fitting']['fit_vmicro']:
-            stellar_labels0[:, 2] = \
-            payne.scale_stellar_labels((2.478 - 0.325 * logg_mu) * torch.ones(payne.n_stellar_labels))[2]
+            with torch.no_grad():
+                stellar_labels0[:, 2] = payne.scale_stellar_labels(
+                    (2.478 - 0.325 * payne.unscale_stellar_labels(stellar_labels0)[:, 1]) * torch.ones(payne.n_stellar_labels)
+                )[2]
         rv0 = 'prefit'
         log_vmacro0 = torch.FloatTensor(1, 1).uniform_(-1.0, 1.3) if configs['fitting']['fit_vmacro'] else None
         log_vsini0 = torch.FloatTensor(1, 1).uniform_(-1.0, 1.0) if configs['fitting']['fit_vsini'] else None
