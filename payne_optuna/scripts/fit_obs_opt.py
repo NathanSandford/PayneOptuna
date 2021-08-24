@@ -8,7 +8,7 @@ import numpy as np
 
 import torch
 from payne_optuna.fitting import PayneOrderEmulator, PayneOptimizer, UniformLogPrior, GaussianLogPrior, FlatLogPrior
-from payne_optuna.utils import ensure_tensor, find_runs
+from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import hires, model_io
 from payne_optuna.misc.spectres import spectres
 
@@ -59,6 +59,8 @@ def main(args):
     resolution = configs['observation']['resolution']
     default_res = configs['observation']['default_res']
     bin_errors = configs['observation']['bin_errors']
+    snr_rdx = configs['observation']['snr_rdx']
+    snr_tag = f'snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
     obs_name = f'{star}_{frame}_{date}'
     # I/O Prep
     model_config_dir = Path(configs['paths']['model_config_dir'])
@@ -292,6 +294,20 @@ def main(args):
     else:
         print('Using default resolution')
 
+    ######################################
+    ######## DEGRADE SIGNAL/NOISE ########
+    ######################################
+    if snr_rdx is not False:
+        print(f'Increase Noise by a Factor of {snr_rdx}')
+        if resolution != "default":
+            D, sigma_D = noise_up_spec(obs['conv_spec'], obs['conv_errs'], snr_rdx)
+            obs['conv_spec'] = D
+            obs['conv_errs'] = sigma_D
+        else:
+            D, sigma_D = noise_up_spec(obs['spec'], obs['errs'], snr_rdx)
+            obs['spec'] = D
+            obs['errs'] = sigma_D
+
     ###############################
     ######## PLOT SPECTRUM ########
     ###############################
@@ -359,7 +375,7 @@ def main(args):
             if j == 0:
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
-        plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}.png'))
+        plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}_{snr_tag}.png'))
         plt.close('all')
 
     ########################
@@ -601,7 +617,7 @@ def main(args):
             'loss': optimizer.loss,
         }
         np.savez(
-            fits_dir.joinpath(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}_{n + 1}.npz"),
+            fits_dir.joinpath(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{n + 1}.npz"),
             **optim_fit
         )
 
@@ -657,7 +673,7 @@ def main(args):
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
-            plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}_{n + 1}.png"))
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{n + 1}.png"))
             plt.close('all')
 
         # Plot Fits
@@ -697,7 +713,7 @@ def main(args):
                 ax1.tick_params('y', labelsize=36)
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
-                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}_{int(obs['ords'][i])}_{n + 1}.png"))
+                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{int(obs['ords'][i])}_{n + 1}.png"))
                 plt.close('all')
 
             print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
