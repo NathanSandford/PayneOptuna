@@ -1748,11 +1748,18 @@ class PayneOptimizer:
         scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
         return scaled_vmicro
 
-    def neg_log_posterior(self, pred, target, pred_errs, target_errs):#, mask):
-        log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)#, mask)
+    def neg_log_posterior(self, pred, target, pred_errs, target_errs):
+        log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)
         log_priors = torch.zeros_like(log_likelihood)
+        unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
+        fe_idx = self.emulator.labels.index('Fe')
         for i, label in enumerate(self.emulator.labels):
-            log_priors += self.priors['stellar_labels'][i](self.stellar_labels[:, i])
+            if label in ['Teff', 'logg', 'v_micro', 'Fe']:
+                log_priors += self.priors['stellar_labels'][i](unscaled_stellar_labels[:, i])
+            else:
+                log_priors += self.priors['stellar_labels'][i](
+                    unscaled_stellar_labels[:, i] - unscaled_stellar_labels[:, fe_idx]
+                )
         if self.log_vmacro is not None:
             log_priors += self.priors['log_vmacro'](self.log_vmacro[:, 0])
         if self.log_vsini is not None:
