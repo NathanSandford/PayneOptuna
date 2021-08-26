@@ -3,12 +3,13 @@ import yaml
 import numpy as np
 from payne_optuna.model import LightningPaynePerceptron
 
-def load_model(config_file):
+def load_model(config_file, verbose=True):
     # Load Configs & Set Paths
     with open(config_file) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
-    print(f'Loading Model {model_name}')
+    if verbose:
+        print(f'Loading Model {model_name}')
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
@@ -33,7 +34,8 @@ def load_model(config_file):
             except KeyError:
                 nn_model.mod_errs = tmp['median_approx_err_wave']
     except FileNotFoundError:
-        print('validation_results.npz does not exist; assuming zero model error.')
+        if verbose:
+            print('validation_results.npz does not exist; assuming zero model error.')
         nn_model.mod_errs = np.zeros_like(nn_model.wavelength)
     return nn_model
 
