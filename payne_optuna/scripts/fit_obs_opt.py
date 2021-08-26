@@ -60,7 +60,7 @@ def main(args):
     default_res = configs['observation']['default_res']
     bin_errors = configs['observation']['bin_errors']
     snr_rdx = configs['observation']['snr_rdx']
-    snr_tag = f'snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
+    snr_tag = f'_snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
     obs_name = f'{star}_{frame}_{date}'
     # I/O Prep
     model_config_dir = Path(configs['paths']['model_config_dir'])
@@ -375,7 +375,7 @@ def main(args):
             if j == 0:
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
-        plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}_{snr_tag}.png'))
+        plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}{snr_tag}.png'))
         plt.close('all')
 
     ########################
@@ -610,14 +610,14 @@ def main(args):
             'obs_wave': optimizer.obs_wave.detach(),
             'obs_flux': optimizer.obs_flux.detach(),
             'obs_errs': optimizer.obs_errs.detach(),
-            'obs_blaz': optimizer.obs_blaz.detach(),
+            'obs_blaz': optimizer.emulator.obs_blaz.detach(),
             'obs_mask': obs['tot_mask'] if resolution == "default" else obs['conv_mask'],
             'mod_flux': optimizer.best_model.detach(),
             'mod_errs': optimizer.best_model_errs.detach(),
             'loss': optimizer.loss,
         }
         np.savez(
-            fits_dir.joinpath(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{n + 1}.npz"),
+            fits_dir.joinpath(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n + 1}.npz"),
             **optim_fit
         )
 
@@ -673,7 +673,7 @@ def main(args):
                 for j in range(optimizer.n_obs_ord):
                     ax.plot(cont_coeffs[:, i, j], alpha=0.5)
                 panel += 1
-            plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{n + 1}.png"))
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_convergence_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n + 1}.png"))
             plt.close('all')
 
         # Plot Fits
@@ -713,7 +713,7 @@ def main(args):
                 ax1.tick_params('y', labelsize=36)
                 ax2.tick_params('x', labelsize=36)
                 ax2.tick_params('y', labelsize=36)
-                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}_{snr_tag}_{int(obs['ords'][i])}_{n + 1}.png"))
+                plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{int(obs['ords'][i])}_{n + 1}.png"))
                 plt.close('all')
 
             print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
