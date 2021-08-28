@@ -1827,8 +1827,21 @@ class PayneOptimizer:
 
         self.params = params
         self.init_params = init_params
-        self.priors = priors
 
+        self.priors = priors
+        self.fe_idx = self.emulator.labels.index('Fe')
+        self.fe_scaled_idx = [
+            i for i, label in enumerate(self.emulator.labels)
+            if label not in ['Teff', 'logg', 'v_micro', 'Fe']
+        ]
+        self.fe_scaler = torch.zeros(2, self.emulator.n_stellar_labels)
+        self.fe_scaler[:, self.fe_scaled_idx] = 1
+        self.stellar_label_bounds = torch.Tensor([
+            [prior.lower_bound, prior.upper_bound]
+            if type(prior) == UniformLogPrior
+            else [-np.inf, np.inf]
+            for prior in self.priors['stellar_labels']
+        ]).T
         self.use_holtzman2015 = use_holtzman2015
 
         # Initialize Starting Values
@@ -1922,7 +1935,16 @@ class PayneOptimizer:
 
             # Set Bounds
             with torch.no_grad():
-                self.stellar_labels.clamp_(min=-0.55, max=0.55)
+                # Enforce Stellar Label Priors
+                #self.stellar_labels.clamp_(min=-0.55, max=0.55)
+                unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
+                scaled_stellar_bounds = self.emulator.scale_stellar_labels(
+                    self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
+                )
+                self.stellar_labels.clamp_(
+                    min=scaled_stellar_bounds[0],
+                    max=scaled_stellar_bounds[1],
+                )
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
