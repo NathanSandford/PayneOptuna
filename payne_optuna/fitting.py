@@ -1802,6 +1802,7 @@ class PayneOptimizer:
                 cont_coeffs='prefit'
             ),
             priors=None,
+            min_epochs=1000,
             max_epochs=10000,
             prefit_cont_window=55,
             use_holtzman2015=False,
@@ -1874,20 +1875,23 @@ class PayneOptimizer:
         )
 
         while (
-                (epoch < max_epochs)
-                and (
-                        (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
-                        or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
-                        or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
-                        or (delta_rv.abs() > self.tolerances['d_rv'])
-                        or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
-                        or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
-                )
-                and (
-                        delta_loss.abs() > self.tolerances['d_loss']
-                )
-                and (
-                        self.loss > self.tolerances['loss']
+                (epoch < min_epochs)
+                or (
+                    (epoch < max_epochs)
+                    and (
+                            (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
+                            or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
+                            or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
+                            or (delta_rv.abs() > self.tolerances['d_rv'])
+                            or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
+                            or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
+                    )
+                    and (
+                            delta_loss.abs() > self.tolerances['d_loss']
+                    )
+                    and (
+                            self.loss > self.tolerances['loss']
+                    )
                 )
         ):
             # Forward Pass
