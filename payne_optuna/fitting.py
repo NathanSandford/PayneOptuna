@@ -1941,10 +1941,15 @@ class PayneOptimizer:
                 scaled_stellar_bounds = self.emulator.scale_stellar_labels(
                     self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
                 )
-                self.stellar_labels.clamp_(
-                    min=scaled_stellar_bounds[0],
-                    max=scaled_stellar_bounds[1],
-                )
+                for i in range(self.n_stellar_labels):
+                    self.stellar_labels[:, i].clamp_(
+                        min=scaled_stellar_bounds[0, i],
+                        max=scaled_stellar_bounds[1, i],
+                    )
+                #self.stellar_labels.clamp_(  # Allowed in pytorch 1.9.0 but not in 1.8.0
+                #    min=scaled_stellar_bounds[0],
+                #    max=scaled_stellar_bounds[1],
+                #)
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
