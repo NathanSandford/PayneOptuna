@@ -635,6 +635,7 @@ def main(args):
             gs.update(hspace=0.0)
             ax0 = plt.subplot(gs[panel, 0])
             ax0.plot(optimizer.history['loss'], label='loss')
+            ax0.set_ylim(np.min(optimizer.history['loss']), 1.1*optimizer.history['loss'][0])
             ax0.legend()
             ax0.set_yscale('log')
             panel += 1
