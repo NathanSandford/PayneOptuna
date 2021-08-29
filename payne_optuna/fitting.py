@@ -1786,6 +1786,7 @@ class PayneOptimizer:
             obs_errs,
             obs_wave,
             obs_blaz=None,
+            obs_mask=None,
             params=dict(
                 stellar_labels='fit',
                 rv='fit',
@@ -1816,6 +1817,9 @@ class PayneOptimizer:
         self.obs_snr = self.obs_flux / self.obs_errs
         self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
         self.obs_blaz = ensure_tensor(obs_blaz) if obs_blaz is not None else torch.ones_like(self.obs_flux)
+        self.obs_mask = ensure_tensor(obs_mask, precision=bool) \
+            if obs_mask is not None \
+            else torch.ones_like(self.obs_flux, dtype=bool)
         if torch.all(self.obs_wave != self.emulator.obs_wave):
             raise RuntimeError("obs_wave of Emulator and Optimizer differ!")
         self.obs_norm_wave = self.emulator.obs_norm_wave
