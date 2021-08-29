@@ -1655,12 +1655,11 @@ class PayneOptimizer:
         c0 = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
         footprint = np.concatenate([np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
         tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz)**2 + self.obs_errs**2)
-        mask = torch.isfinite(tot_errs)
         scaling = self.obs_flux / (mod_flux[0] * self.obs_blaz)
+        scaling[~self.obs_mask] = 1.0
         for i in range(self.n_obs_ord):
             filtered_scaling = percentile_filter(scaling[i].detach().numpy(), percentile=25, footprint=footprint)
             filtered_scaling = percentile_filter(filtered_scaling, percentile=75, footprint=footprint)
-            filtered_scaling[~mask[i]] = 1.0
             p = Polynomial.fit(
                 x=self.obs_norm_wave[i].detach().numpy(),
                 y=filtered_scaling,
@@ -1671,8 +1670,8 @@ class PayneOptimizer:
             if plot:
                 plt.figure(figsize=(20,1))
                 plt.scatter(
-                    self.obs_wave[i][mask[i]].detach().numpy(),
-                    self.obs_flux[i][mask[i]].detach().numpy(),
+                    self.obs_wave[i][self.obs_mask[i]].detach().numpy(),
+                    self.obs_flux[i][self.obs_mask[i]].detach().numpy(),
                     c='k', marker='.', alpha=0.8
                 )
                 plt.plot(
@@ -1683,6 +1682,8 @@ class PayneOptimizer:
                 plt.show()
                 plt.close('all')
             c0[:, i] = ensure_tensor(p.coef)
+            if torch.isnan(c0).any():
+                raise RuntimeError("NaN value returned for c0")
         return [c0[i] for i in range(self.n_cont_coeffs)]
 
     def prefit_vmacro(self, plot=False):
@@ -1910,6 +1911,8 @@ class PayneOptimizer:
                     pred_errs=mod_errs,
                     target_errs=self.obs_errs,
                 )
+            if torch.isnan(loss_epoch):
+                raise RuntimeError('NaN value returned for loss')
 
             # Log Results / History
             delta_loss = self.loss - loss_epoch
@@ -1936,6 +1939,8 @@ class PayneOptimizer:
             loss_epoch.backward()
             optimizer.step()
             scheduler.step()
+            if torch.isnan(self.stellar_labels).any():
+                raise RuntimeError('NaN value(s) suggested for stellar_labels')
 
             # Set Bounds
             with torch.no_grad():
