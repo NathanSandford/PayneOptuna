@@ -494,7 +494,7 @@ def main(args):
             target_errs=ensure_tensor(obs['errs']),
         )
         log_priors = torch.zeros_like(log_likelihood)
-        unscaled_stellar_labels = model.unscale_stellar_labels(stellar_labels)
+        unscaled_stellar_labels = model.unscale_stellar_labels(ensure_tensor(stellar_labels))
         fe_idx = model.labels.index('Fe')
         for i, label in enumerate(model.labels):
             if label in ['Teff', 'logg', 'v_micro', 'Fe']:
