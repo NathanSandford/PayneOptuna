@@ -300,11 +300,11 @@ def main(args):
     if snr_rdx is not False:
         print(f'Increase Noise by a Factor of {snr_rdx}')
         if resolution != "default":
-            D, sigma_D = noise_up_spec(obs['conv_spec'], obs['conv_errs'], snr_rdx)
+            D, sigma_D = noise_up_spec(obs['conv_spec'], obs['conv_errs'], snr_rdx, seed=8645)
             obs['conv_spec'] = D
             obs['conv_errs'] = sigma_D
         else:
-            D, sigma_D = noise_up_spec(obs['spec'], obs['errs'], snr_rdx)
+            D, sigma_D = noise_up_spec(obs['spec'], obs['errs'], snr_rdx, seed=8645)
             obs['spec'] = D
             obs['errs'] = sigma_D
 
@@ -718,7 +718,7 @@ def main(args):
                 plt.savefig(fig_dir.joinpath(f"{obs_name}_spec_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{int(obs['ords'][i])}_{n + 1}.png"))
                 plt.close('all')
 
-            print(f'Completed Fit {n + 1}/{n_fits} for {obs_name}')
+            print(f"Completed Fit {n + 1}/{n_fits} for {obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}")
             del optimizer
             del optim_fit
             plt.close('all')
