@@ -1617,14 +1617,14 @@ class PayneOptimizer:
             loss0 = self.neg_log_posterior(
                 pred=mod_flux * self.obs_blaz,
                 target=self.obs_flux,
-                pred_errs=mod_errs * self.obs_blaz,
+                pred_errs=torch.zeros_like(mod_flux),
                 target_errs=self.obs_errs,
             )
         else:
             loss0 = self.loss_fn(
                 pred=mod_flux * self.obs_blaz,
                 target=self.obs_flux,
-                pred_errs=mod_errs * self.obs_blaz,
+                pred_errs=torch.zeros_like(mod_flux),
                 target_errs=self.obs_errs,
             )
         if plot:
