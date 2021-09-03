@@ -71,7 +71,6 @@ def main(args):
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
     ckpt_dir = model_dir.joinpath("ckpts")
-    ckpt_file = sorted(list(ckpt_dir.glob('*.ckpt')))[-1]
     results_file = model_dir.joinpath('validation_results.npz')
     figure_file_valid = model_dir.joinpath('validation_results_valid.png')
     figure_file_train = model_dir.joinpath('validation_results_train.png')
@@ -85,6 +84,13 @@ def main(args):
     with open(meta_file) as file:
         meta = yaml.load(file, Loader=yaml.UnsafeLoader)
 
+    # Find Best Checkpoint
+    all_ckpts = sorted(list(ckpt_dir.glob("*.ckpt")))
+    if len(all_ckpts) > 0:
+        idx = np.argmin([float(ckpt.name.split('=')[-1].split('ckpt')[0][:-1]) for ckpt in all_ckpts])
+        ckpt_file = all_ckpts[idx]
+    else:
+        raise RuntimeError("No checkpoint files found!")
     # Load the Payne
     NN_model = LightningPaynePerceptron.load_from_checkpoint(
         ckpt_file,
