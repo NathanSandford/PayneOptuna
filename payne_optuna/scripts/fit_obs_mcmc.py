@@ -4,20 +4,17 @@ from pathlib import Path
 from copy import deepcopy
 
 import numpy as np
-import pandas as pd
 
 import torch
 from payne_optuna.fitting import PayneOrderEmulator
 from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior, gaussian_log_likelihood
-from payne_optuna.utils import ensure_tensor, find_runs
-from payne_optuna.misc import hires, model_io
-from payne_optuna.misc.spectres import spectres
+from payne_optuna.utils import ensure_tensor
+from payne_optuna.misc import model_io
 
 import emcee
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 from corner import corner
 
 
@@ -32,6 +29,35 @@ def parse_args(options=None):
     else:
         args = parser.parse_args(options)
     return args
+
+
+def clip_p0(p0_, label_names, prior_list, model):
+    fe_idx = label_names.index('Fe')
+    fe_scaled_idx = [
+        i for i, label in enumerate(label_names)
+        if label not in ['Teff', 'logg', 'v_micro', 'Fe', 'inst_res', 'log_vsini', 'log_vmacro', 'rv']
+    ]
+    fe_scaler = torch.zeros(2, len(label_names))
+    fe_scaler[:, fe_scaled_idx] = 1
+    stellar_label_bounds = torch.Tensor([
+                [prior.lower_bound, prior.upper_bound]
+                if type(prior) == UniformLogPrior
+                else [-np.inf, np.inf]
+                for prior in prior_list
+            ]).T
+    p0_clipped = np.zeros_like(p0_)
+    for i in range(p0_.shape[0]):
+        unscaled_stellar_labels = model.unscale_stellar_labels(ensure_tensor(p0_[i, :model.n_stellar_labels]))
+        label_bounds = stellar_label_bounds + fe_scaler * unscaled_stellar_labels[fe_idx]
+        scaled_stellar_label_bounds = model.scale_stellar_labels(
+            label_bounds[:, :model.n_stellar_labels]
+        )
+        scaled_label_bounds = np.hstack([scaled_stellar_label_bounds, label_bounds[:, model.n_stellar_labels:]])
+        p0_clipped[i] = p0_[i].clip(
+            min=scaled_label_bounds[0]+1e-4,
+            max=scaled_label_bounds[1]-1e-4,
+        )
+    return p0_clipped
 
 
 def main(args):
@@ -77,13 +103,9 @@ def main(args):
     fig_dir.mkdir(parents=True, exist_ok=True)
     fits_dir = program_dir.joinpath(f'fits/{star}_{date}')
     fits_dir.mkdir(parents=True, exist_ok=True)
-    sample_dir = data_dir.joinpath('samples')
+    sample_dir = program_dir.joinpath('samples')
     sample_dir.mkdir(parents=True, exist_ok=True)
     model_config_files = sorted(list(model_config_dir.glob('*')))
-    flat_files = sorted(list(flats_dir.glob('*')))
-    obs_spec_file = obs_dir.joinpath(f'spec1d_{star}_{frame}.fits')
-    telluric_file = mask_dir.joinpath(f"{configs['masks']['telluric']}")
-    detector_mask_file = mask_dir.joinpath(f"{configs['masks']['detector']}")
     line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}")
     nlte_errs_files = sorted(list(mask_dir.joinpath(configs['masks']['nlte']).glob('*'))) \
         if configs['masks']['nlte'] is not False else False
@@ -415,7 +437,8 @@ def main(args):
                     UniformLogPrior(
                         label,
                         configs['fitting']['priors'][label][1],
-                        configs['fitting']['priors'][label][2]
+                        configs['fitting']['priors'][label][2],
+                        out_of_bounds_val=-np.inf,
                     )
                 )
             else:
@@ -426,11 +449,12 @@ def main(args):
                     label,
                     payne.unscale_stellar_labels(-0.55 * torch.ones(payne.n_stellar_labels))[i],
                     payne.unscale_stellar_labels(0.55 * torch.ones(payne.n_stellar_labels))[i],
+                    out_of_bounds_val=-np.inf,
                 )
             )
     priors = {
         "stellar_labels": stellar_label_priors,
-        'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3),
+        'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3, -np.inf),
         'log_vsini': FlatLogPrior('log_vsini'),
         'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
         GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
@@ -517,22 +541,28 @@ def main(args):
     ### Run Burn-In 1 ###
     # Initialize Walkers
     p0_list = [optim_fit["stellar_labels"][0]]
+    prior_list = deepcopy(priors['stellar_labels'])
     label_names = deepcopy(payne.labels)
     if configs['fitting']['fit_inst_res']:
         p0_list.append(optim_fit["inst_res"][0])
         label_names.append("inst_res")
+        prior_list.append(priors['inst_res'])
     if configs['fitting']['fit_vsini']:
         p0_list.append(optim_fit["log_vsini"][0])
         label_names.append("log_vsini")
+        prior_list.append(priors['log_vsini'])
     if configs['fitting']['fit_vmacro']:
         p0_list.append(optim_fit["log_vmacro"][0])
         label_names.append("log_vmacro")
+        prior_list.append(priors['log_vmacro'])
     p0_list.append(optim_fit["rv"])
     label_names.append("rv")
-    p0 = np.concatenate(p0_list) + 1e-2 * np.random.randn(128, len(label_names))
+    prior_list.append(priors['rv'])
+    p0_ = np.concatenate(p0_list) + 1e-2 * np.random.randn(128, len(label_names))
+    p0 = clip_p0(p0_, label_names, prior_list, payne)
     nwalkers, ndim = p0.shape
     # Initialize Backend
-    sample_file = sample_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.h5")
+    sample_file = sample_dir.joinpath(f"test.h5")
     backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
     backend.reset(nwalkers, ndim)
     # Initialize Sampler
@@ -547,12 +577,13 @@ def main(args):
     # Run Sampler until walkers stop wandering
     p_mean_last = p0.mean(0)
     converged = False
-    for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+    for _ in sampler.sample(p0, iterations=10000, progress=True, store=True):
         if (sampler.iteration % 100):
             continue
         p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
-        print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
-        if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+        print(f" ({obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag})")
+        print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
+        if np.abs(np.max(p_mean - p_mean_last)) < 0.001 and (sampler.iteration >= 500):
             p_mean_last = p_mean
             converged = True
             break
@@ -570,56 +601,57 @@ def main(args):
         plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_1_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
     print('Burn-In 1 Complete')
     ### Run Burn-In 2 ###
-    if not converged:
-        print('')
-        # Initialize Walkers
-        last_state = sampler.get_last_sample()
-        best_walker = last_state.coords[last_state.log_prob.argmax()]
-        p0 = best_walker + 1e-3 * np.random.randn(256, len(label_names))
-        nwalkers, ndim = p0.shape
-        # Initialize Backend
-        backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_2")
-        backend.reset(nwalkers, ndim)
-        # Initialize Sampler
-        sampler = emcee.EnsembleSampler(
-            nwalkers,
-            ndim,
-            log_probability,
-            args=(payne, obs, priors),
-            vectorize=True,
-            backend=backend,
-        )
-        # Run Sampler until walkers stop wandering
-        for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
-            if (sampler.iteration % 100):
-                continue
-            p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
-            print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
-            if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
-                p_mean_last = p_mean
-                converged = True
-                break
-            p_mean_last = p_mean
-        if configs['output']['plot_chains']:
-            samples = sampler.get_chain()
-            fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
-            for i in range(ndim):
-                ax = axes[i]
-                ax.plot(samples[:, :, i], "k", alpha=0.3)
-                ax.set_xlim(0, len(samples))
-                ax.set_ylabel(label_names[i])
-                ax.yaxis.set_label_coords(-0.1, 0.5)
-            axes[-1].set_xlabel("step number")
-            plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_2_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
-        print('Burn-In 2 Complete')
+    #if not converged:
+    #    print('')
+    #    # Initialize Walkers
+    #    last_state = sampler.get_last_sample()
+    #    best_walker = last_state.coords[last_state.log_prob.argmax()]
+    #    p0 = best_walker + 1e-3 * np.random.randn(256, len(label_names))
+    #    nwalkers, ndim = p0.shape
+    #    # Initialize Backend
+    #    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_2")
+    #    backend.reset(nwalkers, ndim)
+    #    # Initialize Sampler
+    #    sampler = emcee.EnsembleSampler(
+    #        nwalkers,
+    #        ndim,
+    #        log_probability,
+    #        args=(payne, obs, priors),
+    #        vectorize=True,
+    #        backend=backend,
+    #    )
+    #    # Run Sampler until walkers stop wandering
+    #    for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+    #        if (sampler.iteration % 100):
+    #            continue
+    #        p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
+    #        print(f'max(dMean) = {np.max(p_mean - p_mean_last)}')
+    #        if np.abs(np.max(p_mean - p_mean_last)) < 0.001:
+    #            p_mean_last = p_mean
+    #            converged = True
+    #            break
+    #        p_mean_last = p_mean
+    #    if configs['output']['plot_chains']:
+    #        samples = sampler.get_chain()
+    #        fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
+    #        for i in range(ndim):
+    #            ax = axes[i]
+    #            ax.plot(samples[:, :, i], "k", alpha=0.3)
+    #            ax.set_xlim(0, len(samples))
+    #            ax.set_ylabel(label_names[i])
+    #            ax.yaxis.set_label_coords(-0.1, 0.5)
+    #        axes[-1].set_xlabel("step number")
+    #        plt.savefig(fig_dir.joinpath(f"{obs_name}_burnin_2_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+    #    print('Burn-In 2 Complete')
 
     ##############################
     ######## RUN SAMPLING ########
     ##############################
     # Initialize Walkers
     last_state = sampler.get_last_sample()
-    best_walker = last_state.coords[last_state.log_prob.argmax()]
-    p0 = best_walker + 1e-3 * np.random.randn(1028, len(label_names))
+    p0 = last_state.coords
+    #best_walker = last_state.coords[last_state.log_prob.argmax()]
+    #p0 = best_walker + 1e-3 * np.random.randn(1028, len(label_names))
     nwalkers, ndim = p0.shape
     # Initialize Backend
     backend = emcee.backends.HDFBackend(sample_file, name=f"{obs_name}")
@@ -641,10 +673,12 @@ def main(args):
     for _ in sampler.sample(p0, iterations=max_steps, progress=True, store=True):
         if sampler.iteration % 100:
             continue
+        # Check Convergence
         tau = sampler.get_autocorr_time(tol=0)
         autocorr[index] = np.mean(tau)
         print(
-            f"{obs_name} Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
+            f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} " +
+            f"Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
             f"t/30Tau = {sampler.iteration / (30 * np.max(tau)):.2f}, " +
             f"|dTau/Tau| = {np.max(np.abs(old_tau - tau) / tau):.3f}"
         )
@@ -655,24 +689,50 @@ def main(args):
         old_tau = tau
         if converged:
             break
+        if sampler.iteration % 1000:
+            continue
+        # Plot Chain Update
+        if configs['output']['plot_chains']:
+            samples = sampler.get_chain()
+            fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
+            for i in range(ndim):
+                ax = axes[i]
+                ax.plot(samples[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples))
+                ax.set_ylabel(label_names[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+            axes[-1].set_xlabel("step number")
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt.png"))
 
     #################################
     ######## PROCESS SAMPLES ########
     #################################
-    samples = sampler.get_chain()
+    # Get Chains
+    scaled_samples = sampler.get_chain()
+    unscaled_samples = payne.unscale_stellar_labels(
+        ensure_tensor(
+            scaled_samples[:, :, :payne.n_stellar_labels].reshape(-1, payne.n_stellar_labels)
+        )
+    ).reshape(-1, nwalkers, payne.n_stellar_labels).detach().numpy()
+    samples = np.concatenate([
+        unscaled_samples,
+        scaled_samples[:, :, payne.n_stellar_labels:]
+    ], axis=-1)
+    # Get Flat Samples
     scaled_flat_samples = sampler.get_chain(
         discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
     )
-    unscaled_flat_samples = payne.unscale_stellar_labels(scaled_flat_samples[:, :payne.n_stellar_labels])
+    unscaled_flat_samples = payne.unscale_stellar_labels(
+        ensure_tensor(scaled_flat_samples[:, :payne.n_stellar_labels])).detach().numpy()
     flat_samples = np.concatenate([
         unscaled_flat_samples,
         scaled_flat_samples[:, payne.n_stellar_labels:]
     ], axis=1)
+    # Calculate Mean and Standard Deviation
     scaled_mean = scaled_flat_samples.mean(axis=0)
     scaled_std = scaled_flat_samples.std(axis=0)
     unscaled_mean = unscaled_flat_samples.mean(axis=0)
     unscaled_std = unscaled_flat_samples.std(axis=0)
-    #
     print(f"{obs_name} Sampling Summary:")
     for i, label in enumerate(label_names):
         if label == "Fe":
@@ -705,15 +765,15 @@ def main(args):
     ######## PLOT SAMPLES ########
     ##############################
     if configs['output']['plot_chains']:
-        fig, axes = plt.subplots(payne.n_stellar_labels, figsize=(10, 15), sharex=True)
+        fig, axes = plt.subplots(ndim, figsize=(10, 15), sharex=True)
         for i in range(ndim):
             ax = axes[i]
             ax.plot(samples[:, :, i], "k", alpha=0.3)
             ax.set_xlim(0, len(samples))
-            ax.set_ylabel(payne.labels[i])
+            ax.set_ylabel(label_names[i])
             ax.yaxis.set_label_coords(-0.1, 0.5)
         axes[-1].set_xlabel("step number")
         plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
     if configs['output']['plot_corner']:
-        fig = corner(flat_samples, labels=payne.labels)
+        fig = corner(flat_samples, labels=label_names)
         fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
