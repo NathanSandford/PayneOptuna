@@ -677,7 +677,7 @@ def main(args):
             continue
         # Check Convergence
         tau = sampler.get_autocorr_time(
-            discard=old_tau if np.isfinite(old_tau) else 0,
+            discard=np.max(old_tau) if np.all(np.isfinite(old_tau)) else 0,
             tol=0
         )
         autocorr[index] = np.mean(tau)
