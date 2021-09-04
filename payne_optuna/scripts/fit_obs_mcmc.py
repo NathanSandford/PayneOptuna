@@ -457,7 +457,8 @@ def main(args):
         'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3, -np.inf),
         'log_vsini': FlatLogPrior('log_vsini'),
         'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
-        GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
+        GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution)),
+        'rv': FlatLogPrior('rv'),
     }
     #print('Setting Priors')
     #teff_mu = configs['fitting']['priors']['Teff'][0]
@@ -533,6 +534,7 @@ def main(args):
             log_priors += priors['log_vsini'](ensure_tensor(log_vsini))
         if inst_res is not None:
             log_priors += priors['inst_res'](ensure_tensor(inst_res))
+        log_priors += priors['rv'](ensure_tensor(rv))
         return (log_likelihood + log_priors).detach().numpy()
 
     #################################
