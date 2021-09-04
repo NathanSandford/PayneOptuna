@@ -564,7 +564,7 @@ def main(args):
     p0 = clip_p0(p0_, label_names, prior_list, payne)
     nwalkers, ndim = p0.shape
     # Initialize Backend
-    sample_file = sample_dir.joinpath(f"test.h5")
+    sample_file = sample_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.h5")
     backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
     backend.reset(nwalkers, ndim)
     # Initialize Sampler
@@ -656,7 +656,7 @@ def main(args):
     #p0 = best_walker + 1e-3 * np.random.randn(1028, len(label_names))
     nwalkers, ndim = p0.shape
     # Initialize Backend
-    backend = emcee.backends.HDFBackend(sample_file, name=f"{obs_name}")
+    backend = emcee.backends.HDFBackend(sample_file, name=f"samples")
     backend.reset(nwalkers, ndim)
     # Initialize Sampler
     sampler = emcee.EnsembleSampler(
