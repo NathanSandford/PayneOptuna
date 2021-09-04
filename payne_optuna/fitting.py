@@ -14,14 +14,15 @@ def mse_loss(pred, target, pred_errs, target_errs):
 
 
 class UniformLogPrior:
-    def __init__(self, label, lower_bound, upper_bound):
+    def __init__(self, label, lower_bound, upper_bound, out_of_bounds_val=-1e10):
         self.label = label
         self.lower_bound = ensure_tensor(lower_bound)
         self.upper_bound = ensure_tensor(upper_bound)
+        self.out_of_bounds_val = ensure_tensor(out_of_bounds_val)
 
     def __call__(self, x):
         log_prior = torch.zeros_like(x)
-        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = -1e10
+        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
         return log_prior
 
 
