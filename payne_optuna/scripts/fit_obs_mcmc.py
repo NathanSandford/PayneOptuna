@@ -674,7 +674,10 @@ def main(args):
         if sampler.iteration % 100:
             continue
         # Check Convergence
-        tau = sampler.get_autocorr_time(tol=0)
+        tau = sampler.get_autocorr_time(
+            discard=old_tau if np.isfinite(old_tau) else 0,
+            tol=0
+        )
         autocorr[index] = np.mean(tau)
         print(
             f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} " +
