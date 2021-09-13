@@ -1957,8 +1957,8 @@ class PayneOptimizer:
                 )
                 for i in range(self.n_stellar_labels):
                     self.stellar_labels[:, i].clamp_(
-                        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)),
-                        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)),
+                        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
+                        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
                     )
                 #self.stellar_labels.clamp_(  # Allowed in pytorch 1.9.0 but not in 1.8.0
                 #    min=scaled_stellar_bounds[0],
