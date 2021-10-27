@@ -1170,13 +1170,12 @@ class PayneStitchedEmulator(PayneEmulator):
         self.n_models = len(self.models)
         self.include_model_errs = include_model_errs
         self.mod_wave = torch.vstack(
-            [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models])
+            [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]).flatten().unsqueeze(0)
+        if not torch.all(self.mod_wave.diff() > 0):
+            raise RuntimeError('Model Wavelengths are not in ascending order!')
         self.n_mod_pix = self.mod_wave.shape[1]
-        self.sort_idx = self.mod_wave.flatten().argsort()
-        self.mod_wave = self.mod_wave.flatten()[self.sort_idx].unsqueeze(0)
         if self.include_model_errs:
-            self.mod_errs = torch.vstack([ensure_tensor(model.mod_errs) for model in self.models])
-            self.mod_errs = self.mod_errs.flatten()[self.sort_idx].unsqueeze(0)
+            self.mod_errs = torch.vstack([ensure_tensor(model.mod_errs) for model in self.models]).flatten().unsqueeze(0)
         else:
             self.mod_errs = None
         self.model_res = model_res
@@ -1441,11 +1440,11 @@ class PayneStitchedEmulator(PayneEmulator):
 
     def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         n_spec = stellar_labels.shape[0]
-        norm_flux = torch.zeros(n_spec, self.n_obs_ord, self.n_mod_pix)
+        norm_flux = torch.zeros(n_spec, self.n_models, self.n_mod_pix)
         # Model Spectrum
         for i, model in enumerate(self.models):
             norm_flux[:, i, :] = model(stellar_labels)
-        norm_flux = norm_flux.flatten().view(n_spec, -1)[:, self.sort_idx].unsqueeze(1)
+        norm_flux = norm_flux.flatten().view(n_spec, -1).unsqueeze(1)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
         if (inst_res is not None) and (vmacro is not None) and (self.vmacro_method == 'iso_fft'):
             conv_flux, conv_errs = self.inst_vmacro_iso_broaden_fft(
