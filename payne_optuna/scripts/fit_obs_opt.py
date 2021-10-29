@@ -7,7 +7,7 @@ import gc
 import numpy as np
 
 import torch
-from payne_optuna.fitting import PayneOrderEmulator, PayneOptimizer, UniformLogPrior, GaussianLogPrior, FlatLogPrior
+from payne_optuna.fitting import PayneStitchedEmulator, PayneOptimizer, UniformLogPrior, GaussianLogPrior, FlatLogPrior
 from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import hires, model_io
 from payne_optuna.misc.spectres import spectres
@@ -43,7 +43,7 @@ def main(args):
     mpl.rc('ytick.major', size=5, width=1)
     mpl.rc('grid', alpha=0.75, lw=1)
     mpl.rc('legend', edgecolor='k', framealpha=1, fancybox=False)
-    mpl.rc('figure', dpi=300)
+    mpl.rc('figure', dpi=100)
 
     #####################
     ######## I/O ########
@@ -170,7 +170,7 @@ def main(args):
             nlte_errs.append(tmp['errs'])
     else:
         nlte_errs = np.zeros(len(model_config_files))
-        # Load Models
+    # Load Models
     models = []
     for i, model_config_file in enumerate(model_config_files):
         if isinstance(orders, str) and orders.lower() == 'all':
@@ -192,9 +192,32 @@ def main(args):
     #print('Model bounds determined to be:')
     #[print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
     # Initialize Emulator
-    payne = PayneOrderEmulator(
+    #payne = CompositePayneEmulator(
+    #    models=models,
+    #    model_bounds=model_bounds,
+    #    cont_deg=configs['fitting']['cont_deg'],
+    #    cont_wave_norm_range=(-10, 10),
+    #    obs_wave=obs['wave'],
+    #    obs_blaz=obs['scaled_blaz'],
+    #    include_model_errs=True,
+    #    model_res=default_res,
+    #    vmacro_method='iso_fft',
+    #)
+    # Initialize Emulator
+    #payne = PayneOrderEmulator(
+    #    models=models,
+    #    cont_deg=configs['fitting']['cont_deg'],
+    #    cont_wave_norm_range=(-10, 10),
+    #    obs_wave=obs['wave'],
+    #    obs_blaz=obs['scaled_blaz'],
+    #    include_model_errs=True,
+    #    model_res=default_res,
+    #    vmacro_method='iso_fft',
+    #)
+    # Initialize Emulator
+    payne = PayneStitchedEmulator(
         models=models,
-        cont_deg=6,
+        cont_deg=configs['fitting']['cont_deg'],
         cont_wave_norm_range=(-10, 10),
         obs_wave=obs['wave'],
         obs_blaz=obs['scaled_blaz'],
