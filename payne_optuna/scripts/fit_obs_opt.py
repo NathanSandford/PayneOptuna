@@ -5,6 +5,7 @@ from copy import deepcopy
 import gc
 
 import numpy as np
+import pandas as pd
 
 import torch
 from payne_optuna.fitting import PayneStitchedEmulator, PayneOptimizer, UniformLogPrior, GaussianLogPrior, FlatLogPrior
@@ -110,6 +111,11 @@ def main(args):
     )
     # Save Raw Errors
     obs['raw_errs'] = deepcopy(obs['errs'])
+    if configs['fitting']['use_gaia_phot']:
+        phot = pd.read_hdf(data_dir.joinpath('photometry.h5'), 'M15')
+        obs['bp-rp'] = phot.loc[star, 'bp-rp']
+        obs['g'] = phot.loc[star, 'g']
+        gaia_cmd_interp = np.load(data_dir.joinpath('gaia_cmd_interp.npy'), allow_pickle=True)[()]
 
     #######################
     ######## MASKS ########
@@ -442,29 +448,6 @@ def main(args):
         'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
         GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
     }
-    #print('Setting Priors')
-    #teff_mu = configs['fitting']['priors']['Teff'][0]
-    #teff_sigma = configs['fitting']['priors']['Teff'][1]
-    #teff_mu_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0]
-    #teff_sigma_scaled = payne.scale_stellar_labels(teff_mu * torch.ones(payne.n_stellar_labels))[0] \
-    #             - payne.scale_stellar_labels(teff_mu-teff_sigma * torch.ones(payne.n_stellar_labels))[0]
-    #logg_mu = configs['fitting']['priors']['logg'][0]
-    #logg_sigma = configs['fitting']['priors']['logg'][1]
-    #logg_mu_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1]
-    #logg_sigma_scaled = payne.scale_stellar_labels(logg_mu * torch.ones(payne.n_stellar_labels))[1] \
-    #             - payne.scale_stellar_labels(logg_mu-logg_sigma * torch.ones(payne.n_stellar_labels))[1]
-    #print(f'Teff Priors = {teff_mu:0.0f} +/- {teff_sigma:0.1f} ({teff_mu_scaled:0.2f} +/- {teff_sigma_scaled:0.2f})')
-    #print(f'logg Priors = {logg_mu:0.2f} +/- {logg_sigma:0.3f} ({logg_mu_scaled:0.2f} +/- {logg_sigma_scaled:0.2f})')
-    #priors = {
-    #    'stellar_labels': [
-    #                          GaussianLogPrior('Teff', teff_mu_scaled, teff_sigma_scaled),
-    #                          GaussianLogPrior('logg', logg_mu_scaled, logg_sigma_scaled)
-    #                      ] + [UniformLogPrior(lab, -0.55, 0.55) for lab in payne.labels[2:]],
-    #    'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3),
-    #    'log_vsini': FlatLogPrior('log_vsini'),
-    #    'inst_res': FlatLogPrior('inst_res') if resolution == 'default' else
-    #    GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution))
-    #}
 
     #############################
     ######## FIT SPECTRA ########
@@ -552,11 +535,6 @@ def main(args):
                 )
             with torch.no_grad():
                 stellar_labels0[:, i] = ensure_tensor(x0)
-        #print('Initializing Labels')
-        #stellar_labels0 = torch.FloatTensor(1, payne.n_stellar_labels).uniform_(-0.5, 0.5)
-        #with torch.no_grad():
-        #    stellar_labels0[:, 0] = teff_mu_scaled
-        #    stellar_labels0[:, 1] = logg_mu_scaled
         if not configs['fitting']['fit_vmicro']:
             with torch.no_grad():
                 stellar_labels0[:, 2] = payne.scale_stellar_labels(
@@ -596,6 +574,10 @@ def main(args):
                 cont_coeffs='prefit'
             ),
             priors=priors,
+            use_gaia_phot=configs['fitting']['use_gaia_phot'],
+            gaia_g=obs['g'] if configs['fitting']['use_gaia_phot'] else None,
+            gaia_bprp=obs['bp-rp'] if configs['fitting']['use_gaia_phot'] else None,
+            gaia_cmd_interpolator=gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None,
             use_holtzman2015=False if configs['fitting']['fit_vmicro'] else True,
             min_epochs=2000,
             max_epochs=50000,

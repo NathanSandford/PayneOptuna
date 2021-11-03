@@ -26,9 +26,6 @@ def j_nu(x, nu, n_tau=100):
 
 
 def thin_plate_spline(r):
-    #if r == 0:
-    #    return 0.0
-    #else:
     return r**2*torch.log(r)
 
 

@@ -3,7 +3,7 @@ import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.ndimage import percentile_filter
 import torch
-from .utils import ensure_tensor, j_nu
+from .utils import ensure_tensor, j_nu, thin_plate_spline
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
@@ -1622,14 +1622,14 @@ class PayneOptimizer:
         self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
         self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
         self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
-        #self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        # self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
         rv0 = torch.linspace(rv_range[0], rv_range[1], n_rv)
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
             rv=rv0,
             cont_coeffs=self.c_flat,
-            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
-            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
             inst_res=self.inst_res,
         )
         if self.loss_fn == 'neg_log_posterior':
@@ -1653,27 +1653,28 @@ class PayneOptimizer:
         return rv0[loss0.argmin()].unsqueeze(0)
 
     def prefit_cont(
-        self,
-        log_vmacro0=None,
-        log_vsini0=None,
-        inst_res0=None,
-        plot=False,
+            self,
+            log_vmacro0=None,
+            log_vsini0=None,
+            inst_res0=None,
+            plot=False,
     ):
         self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
         self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
         self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
-        #self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        # self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
             rv=self.rv,
             cont_coeffs=self.c_flat,
-            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
-            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
             inst_res=self.inst_res,
         )
         c0 = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
-        footprint = np.concatenate([np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
-        tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz)**2 + self.obs_errs**2)
+        footprint = np.concatenate(
+            [np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
+        tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz) ** 2 + self.obs_errs ** 2)
         scaling = self.obs_flux / (mod_flux[0] * self.obs_blaz)
         scaling[~self.obs_mask] = 1.0
         for i in range(self.n_obs_ord):
@@ -1683,11 +1684,11 @@ class PayneOptimizer:
                 x=self.obs_norm_wave[i].detach().numpy(),
                 y=filtered_scaling,
                 deg=self.cont_deg,
-                w=(tot_errs[i]**-1).detach().numpy(),
+                w=(tot_errs[i] ** -1).detach().numpy(),
                 window=self.cont_wave_norm_range
             )
             if plot:
-                plt.figure(figsize=(20,1))
+                plt.figure(figsize=(20, 1))
                 plt.scatter(
                     self.obs_wave[i][self.obs_mask[i]].detach().numpy(),
                     self.obs_flux[i][self.obs_mask[i]].detach().numpy(),
@@ -1695,9 +1696,10 @@ class PayneOptimizer:
                 )
                 plt.plot(
                     self.obs_wave[i].detach().numpy(),
-                    (mod_flux[0,i] * self.obs_blaz[i] * p(self.obs_norm_wave[i])).detach().numpy(),
+                    (mod_flux[0, i] * self.obs_blaz[i] * p(self.obs_norm_wave[i])).detach().numpy(),
                     c='r', alpha=0.8
                 )
+                plt.ylim(0, 1.5 * np.quantile(self.obs_flux[i][self.obs_mask[i]].detach().numpy(), 0.95))
                 plt.show()
                 plt.close('all')
             c0[:, i] = ensure_tensor(p.coef)
@@ -1723,7 +1725,7 @@ class PayneOptimizer:
         if self.params['stellar_labels'] == 'fit':
             optim_params.append({'params': [self.stellar_labels], 'lr': self.learning_rates['stellar_labels']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['stellar_labels'] ** (
-                        epoch // self.learning_rate_decay_ts['stellar_labels']))
+                    epoch // self.learning_rate_decay_ts['stellar_labels']))
         if self.params['rv'] == 'fit':
             optim_params.append({'params': [self.rv], 'lr': self.learning_rates['rv']})
             lr_lambdas.append(
@@ -1731,15 +1733,15 @@ class PayneOptimizer:
         if self.params['log_vmacro'] == 'fit':
             optim_params.append({'params': [self.log_vmacro], 'lr': self.learning_rates['log_vmacro']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vmacro'] ** (
-                        epoch // self.learning_rate_decay_ts['log_vmacro']))
+                    epoch // self.learning_rate_decay_ts['log_vmacro']))
         if self.params['log_vsini'] == 'fit':
             optim_params.append({'params': [self.log_vsini], 'lr': self.learning_rates['log_vsini']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vsini'] ** (
-                        epoch // self.learning_rate_decay_ts['log_vsini']))
+                    epoch // self.learning_rate_decay_ts['log_vsini']))
         if self.params['inst_res'] == 'fit':
             optim_params.append({'params': [self.inst_res], 'lr': self.learning_rates['inst_res']})
             lr_lambdas.append(lambda epoch: self.learning_rate_decay['inst_res'] ** (
-                        epoch // self.learning_rate_decay_ts['inst_res']))
+                    epoch // self.learning_rate_decay_ts['inst_res']))
         if self.params['cont_coeffs'] == 'fit':
             optim_params += [
                 {'params': [self.cont_coeffs[i]],
@@ -1748,7 +1750,7 @@ class PayneOptimizer:
             ]
             lr_lambdas += [
                 lambda epoch: self.learning_rate_decay['cont_coeffs'] ** (
-                            epoch // self.learning_rate_decay_ts['cont_coeffs'])
+                        epoch // self.learning_rate_decay_ts['cont_coeffs'])
                 for i in range(self.n_cont_coeffs)
             ]
         optimizer = torch.optim.Adam(optim_params)
@@ -1758,11 +1760,39 @@ class PayneOptimizer:
         )
         return optimizer, scheduler
 
+    def atm_from_gaia_phot(self, scaled_feh):
+        n_spec = scaled_feh.shape[0]
+        teff_min = self.emulator.stellar_labels_min[0]
+        teff_max = self.emulator.stellar_labels_max[0]
+        logg_min = self.emulator.stellar_labels_min[1]
+        logg_max = self.emulator.stellar_labels_max[1]
+        fe_min = self.emulator.stellar_labels_min[self.fe_idx]
+        fe_max = self.emulator.stellar_labels_max[self.fe_idx]
+        unscaled_fe = (scaled_feh + 0.5) * (fe_max - fe_min) + fe_min
+        vec = torch.zeros(
+            (self._gaia_n_cmd + self._gaia_n_pow, n_spec),
+            dtype=torch.float64
+        )
+        feh_phot = torch.vstack(
+            [unscaled_fe, self.gaia_bprp.repeat(n_spec), self.gaia_g.repeat(n_spec)]
+        ).T * self._gaia_eps
+        feh_phot_hat = (feh_phot - self._gaia_shift) / self._gaia_scale
+        d = feh_phot.unsqueeze(0) - self._gaia_cmd.unsqueeze(1)
+        r = torch.linalg.norm(d, axis=2)
+        vec[:self._gaia_n_cmd, :] = thin_plate_spline(r)
+        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._gaia_pow.unsqueeze(1)
+        vec[self._gaia_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
+        logg_logteff = torch.tensordot(self._gaia_coeffs, vec, dims=[[0], [0]])
+        scaled_logg = (logg_logteff[0] - logg_min) / (logg_max - logg_min) - 0.5
+        scaled_teff = (10 ** logg_logteff[1] - teff_min) / (teff_max - teff_min) - 0.5
+        scaled_logg_teff = torch.vstack([scaled_teff, scaled_logg]).T
+        return scaled_logg_teff
+
     def holtzman2015(self, scaled_logg):
-        logg_min = np.array(list(self.emulator.models[0].x_min.values()))[1]
-        logg_max = np.array(list(self.emulator.models[0].x_max.values()))[1]
-        vmicro_min = np.array(list(self.emulator.models[0].x_min.values()))[2]
-        vmicro_max = np.array(list(self.emulator.models[0].x_max.values()))[2]
+        logg_min = self.emulator.stellar_labels_min[1]
+        logg_max = self.emulator.stellar_labels_max[1]
+        vmicro_min = self.emulator.stellar_labels_min[2]
+        vmicro_max = self.emulator.stellar_labels_max[2]
         unscaled_logg = (scaled_logg + 0.5) * (logg_max - logg_min) + logg_min
         unscaled_vmicro = 2.478 - 0.325 * unscaled_logg
         scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
@@ -1792,10 +1822,10 @@ class PayneOptimizer:
         mod_flux, mod_errs = self.emulator(
             stellar_labels=self.stellar_labels,
             rv=self.rv,
-            vmacro=None if self.log_vmacro is None else 10**self.log_vmacro,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
             cont_coeffs=torch.stack(self.cont_coeffs),
             inst_res=self.inst_res,
-            vsini=None if self.log_vsini is None else 10**self.log_vsini,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
         )
         return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
 
@@ -1815,7 +1845,7 @@ class PayneOptimizer:
                 cont_coeffs='fit',
             ),
             init_params=dict(
-                stellar_labels=torch.zeros(1,12),
+                stellar_labels=torch.zeros(1, 12),
                 rv='prefit',
                 vmacro=None,
                 vsini=None,
@@ -1828,6 +1858,9 @@ class PayneOptimizer:
             prefit_cont_window=55,
             use_holtzman2015=False,
             use_gaia_phot=False,
+            gaia_g=None,
+            gaia_bprp=None,
+            gaia_cmd_interpolator=None,
             verbose=False,
             plot_prefits=False,
             plot_fit_every=None,
@@ -1870,6 +1903,23 @@ class PayneOptimizer:
         ]).T
         self.use_holtzman2015 = use_holtzman2015
         self.use_gaia_phot = use_gaia_phot
+        if self.use_gaia_phot:
+            if gaia_g is None or gaia_bprp is None:
+                raise ValueError("Gaia photometry is not provided")
+            if gaia_cmd_interpolator is None:
+                raise ValueError("Gaia CMD interpolator is not provided")
+            self.gaia_g = ensure_tensor(gaia_g)
+            self.gaia_bprp = ensure_tensor(gaia_bprp)
+            self._gaia_fn = gaia_cmd_interpolator
+            self._gaia_cmd = ensure_tensor(self._gaia_fn.y * self._gaia_fn.epsilon, precision=torch.float64)
+            self._gaia_eps = ensure_tensor(self._gaia_fn.epsilon, precision=torch.float64)
+            self._gaia_pow = ensure_tensor(self._gaia_fn.powers, precision=torch.float64)
+            self._gaia_coeffs = ensure_tensor(self._gaia_fn._coeffs, precision=torch.float64)
+            self._gaia_shift = ensure_tensor(self._gaia_fn._shift, precision=torch.float64)
+            self._gaia_scale = ensure_tensor(self._gaia_fn._scale, precision=torch.float64)
+            self._gaia_n_cmd = self._gaia_cmd.shape[0]
+            self._gaia_n_pow = self._gaia_pow.shape[0]
+            self._gaia_n_coeffs = self._gaia_coeffs.shape[1]
 
         # Initialize Starting Values
         self.init_values(plot_prefits=plot_prefits)
@@ -1903,21 +1953,21 @@ class PayneOptimizer:
         while (
                 (epoch < min_epochs)
                 or (
-                    (epoch < max_epochs)
-                    and (
-                            (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
-                            or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
-                            or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
-                            or (delta_rv.abs() > self.tolerances['d_rv'])
-                            or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
-                            or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
-                    )
-                    and (
-                            delta_loss.abs() > self.tolerances['d_loss']
-                    )
-                    and (
-                            self.loss > self.tolerances['loss']
-                    )
+                        (epoch < max_epochs)
+                        and (
+                                (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
+                                or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
+                                or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
+                                or (delta_rv.abs() > self.tolerances['d_rv'])
+                                or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
+                                or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
+                        )
+                        and (
+                                delta_loss.abs() > self.tolerances['d_loss']
+                        )
+                        and (
+                                self.loss > self.tolerances['loss']
+                        )
                 )
         ):
             # Forward Pass
@@ -1970,7 +2020,7 @@ class PayneOptimizer:
             # Set Bounds
             with torch.no_grad():
                 # Enforce Stellar Label Priors
-                #self.stellar_labels.clamp_(min=-0.55, max=0.55)
+                # self.stellar_labels.clamp_(min=-0.55, max=0.55)
                 unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
                 scaled_stellar_bounds = self.emulator.scale_stellar_labels(
                     self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
@@ -1980,12 +2030,12 @@ class PayneOptimizer:
                         min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
                         max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
                     )
-                #self.stellar_labels.clamp_(  # Allowed in pytorch 1.9.0 but not in 1.8.0
+                # self.stellar_labels.clamp_(  # Allowed in pytorch 1.9.0 but not in 1.8.0
                 #    min=scaled_stellar_bounds[0],
                 #    max=scaled_stellar_bounds[1],
-                #)
+                # )
                 if self.use_gaia_phot:
-                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(unscaled_stellar_labels[:, self.fe_idx])
+                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
@@ -2000,10 +2050,12 @@ class PayneOptimizer:
 
             # Check Convergence
             delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
-            delta_log_vmacro = ensure_tensor(0) if self.log_vmacro is None else self.log_vmacro - self.history['log_vmacro'][-1]
+            delta_log_vmacro = ensure_tensor(0) if self.log_vmacro is None else self.log_vmacro - \
+                                                                                self.history['log_vmacro'][-1]
             delta_rv = self.rv - self.history['rv'][-1]
             delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
-            delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - self.history['log_vsini'][-1]
+            delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - \
+                                                                              self.history['log_vsini'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
             if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
@@ -2054,11 +2106,12 @@ class PayneOptimizer:
             print('d_stellar_labels tolerance reached')
         if not delta_rv.abs().max() > self.tolerances['d_rv']:
             print('d_rv tolerance reached')
-        if not delta_log_vmacro.abs().max() > self.tolerances['d_log_vmacro'] and self.log_vmacro is not None and verbose:
+        if not delta_log_vmacro.abs().max() > self.tolerances[
+            'd_log_vmacro'] and self.log_vmacro is not None and verbose:
             print('d_log_vmacro tolerance reached')
-        if not delta_inst_res.abs().max() > self.tolerances['d_inst_res'] and self.inst_res is not None :
+        if not delta_inst_res.abs().max() > self.tolerances['d_inst_res'] and self.inst_res is not None:
             print('d_inst_res tolerance reached')
-        if not delta_log_vsini.abs().max() > self.tolerances['d_log_vsini'] and self.log_vsini is not None :
+        if not delta_log_vsini.abs().max() > self.tolerances['d_log_vsini'] and self.log_vsini is not None:
             print('d_log_vsini tolerance reached')
         if not delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont']:
             print('d_cont tolerance reached')
