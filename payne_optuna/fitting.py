@@ -1419,6 +1419,10 @@ class PayneStitchedEmulator(PayneEmulator):
         return y_new.view(n_spec, n_ord_new, n_pix_new)
 
     def interp_flux(self, old_wave, new_wave, flux, errs):
+        if (flux.shape[0] == 1) and (old_wave.shape[0] > 1):
+            flux = flux.repeat(old_wave.shape[0], 1, 1)
+        elif (flux.shape[0] != old_wave.shape[0]):
+            raise RuntimeError("RV input and stellar label input have conflicting shapes")
         intp_flux = self.interp(
             x_old=old_wave,
             x_new=new_wave,
@@ -1426,6 +1430,10 @@ class PayneStitchedEmulator(PayneEmulator):
             fill=1.0,
         )
         if errs is not None:
+            if (errs.shape[0] == 1) and (old_wave.shape[0] > 1):
+                errs = errs.repeat(old_wave.shape[0], 1, 1)
+            elif (errs.shape[0] != old_wave.shape[0]):
+                raise RuntimeError("RV input and stellar label input have conflicting shapes")
             intp_errs = self.interp(
                 x_old=old_wave,
                 x_new=new_wave,
