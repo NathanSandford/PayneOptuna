@@ -25,6 +25,13 @@ def j_nu(x, nu, n_tau=100):
     return (1/np.pi) * torch.trapz(integrand, tau[0], dim=-1)
 
 
+def thin_plate_spline(r):
+    #if r == 0:
+    #    return 0.0
+    #else:
+    return r**2*torch.log(r)
+
+
 def log_lambda_grid(dv, min_wave, max_wave):
     max_log_dv = np.log10(dv / 2.99792458e5 + 1.0)
     log_min_wave = np.log10(min_wave)
@@ -102,3 +109,5 @@ def noise_up_spec(D0, sigma_D0, factor, min_flux=-1e10, max_flux=1e10, seed=None
     D = np.random.normal(D0, sigma).clip(min=min_flux, max=max_flux)
     sigma_D = np.sqrt(sigma_D0**2 + sigma**2)
     return D, sigma_D
+
+

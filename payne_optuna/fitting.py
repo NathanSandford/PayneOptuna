@@ -1435,6 +1435,16 @@ class PayneStitchedEmulator(PayneEmulator):
             intp_errs = None
         return intp_flux, intp_errs
 
+    def scale_stellar_labels(self, unscaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
+
+    def unscale_stellar_labels(self, scaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
+
     def forward_model_spec(self, norm_flux, norm_errs, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         raise NotImplementedError
 
@@ -1808,6 +1818,7 @@ class PayneOptimizer:
             max_epochs=10000,
             prefit_cont_window=55,
             use_holtzman2015=False,
+            use_gaia_phot=False,
             verbose=False,
             plot_prefits=False,
             plot_fit_every=None,
@@ -1849,6 +1860,7 @@ class PayneOptimizer:
             for prior in self.priors['stellar_labels']
         ]).T
         self.use_holtzman2015 = use_holtzman2015
+        self.use_gaia_phot = use_gaia_phot
 
         # Initialize Starting Values
         self.init_values(plot_prefits=plot_prefits)
@@ -1963,6 +1975,8 @@ class PayneOptimizer:
                 #    min=scaled_stellar_bounds[0],
                 #    max=scaled_stellar_bounds[1],
                 #)
+                if self.use_gaia_phot:
+                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(unscaled_stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
