@@ -583,7 +583,7 @@ def main(args):
             max_epochs=50000,
             prefit_cont_window=55,
             verbose=True,
-            plot_prefits=True,
+            plot_prefits=False,
             plot_fit_every=None,
         )
         # Unscale Stellar Labels
