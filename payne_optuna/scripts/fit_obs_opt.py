@@ -656,22 +656,22 @@ def main(args):
             ax1.legend(ncol=payne.n_stellar_labels, loc='lower center', fontsize=6)
             panel += 1
             ax2 = plt.subplot(gs[panel, 0], sharex=ax0)
-            ax2.plot(np.array(optimizer.history['rv']), label='rv')
+            ax2.plot(torch.cat(optimizer.history['rv']).detach().numpy(), label='rv')
             ax2.legend()
             panel += 1
             if optimizer.log_vmacro is not None:
                 ax = plt.subplot(gs[panel, 0])
-                ax.plot(np.array(optimizer.history['log_vmacro']), label='log_vmacro')
+                ax.plot(torch.cat(optimizer.history['log_vmacro']).detach().numpy(), label='log_vmacro')
                 ax.legend()
                 panel += 1
             if optimizer.log_vsini is not None:
                 ax = plt.subplot(gs[panel, 0])
-                ax.plot(np.array(optimizer.history['log_vsini']), label='log_vsini')
+                ax.plot(torch.cat(optimizer.history['log_vsini']).detach().numpy(), label='log_vsini')
                 ax.legend()
                 panel += 1
             if optimizer.inst_res is not None:
                 ax = plt.subplot(gs[panel, 0])
-                ax.plot(np.array(optimizer.history['inst_res']), label='inst_res')
+                ax.plot(torch.cat(optimizer.history['inst_res']).detach().numpy(), label='inst_res')
                 ax.legend()
                 panel += 1
             cont_coeffs = torch.stack(optimizer.history['cont_coeffs'])
