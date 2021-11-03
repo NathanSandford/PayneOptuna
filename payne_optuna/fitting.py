@@ -1173,7 +1173,8 @@ class PayneStitchedEmulator(PayneEmulator):
             [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]).flatten().unsqueeze(0)
         if not torch.all(self.mod_wave.diff() > 0):
             raise RuntimeError('Model Wavelengths are not in ascending order!')
-        self.n_mod_pix = self.mod_wave.shape[1]
+        self.n_mod_pix_indiv = self.models[0].wavelength.shape[1]
+        self.n_mod_pix_total = self.mod_wave.shape[1]
         if self.include_model_errs:
             self.mod_errs = torch.vstack([ensure_tensor(model.mod_errs) for model in self.models]).flatten().unsqueeze(0)
         else:
@@ -1450,7 +1451,7 @@ class PayneStitchedEmulator(PayneEmulator):
 
     def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         n_spec = stellar_labels.shape[0]
-        norm_flux = torch.zeros(n_spec, self.n_models, self.n_mod_pix)
+        norm_flux = torch.zeros(n_spec, self.n_models, self.n_mod_pix_indiv)
         # Model Spectrum
         for i, model in enumerate(self.models):
             norm_flux[:, i, :] = model(stellar_labels)
