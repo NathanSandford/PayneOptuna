@@ -59,6 +59,7 @@ def main(args):
     orders = configs['observation']['orders']
     resolution = configs['observation']['resolution']
     default_res = configs['observation']['default_res']
+    model_res = configs['observation']['model_res']
     bin_errors = configs['observation']['bin_errors']
     snr_rdx = configs['observation']['snr_rdx']
     snr_tag = f'_snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
@@ -223,12 +224,12 @@ def main(args):
     # Initialize Emulator
     payne = PayneStitchedEmulator(
         models=models,
-        cont_deg=configs['fitting']['cont_deg'],
+        cont_deg=4,#configs['fitting']['cont_deg'],
         cont_wave_norm_range=(-10, 10),
         obs_wave=obs['wave'],
         obs_blaz=obs['scaled_blaz'],
         include_model_errs=True,
-        model_res=default_res,
+        model_res=model_res,
         vmacro_method='iso_fft',
     )
 
@@ -544,13 +545,23 @@ def main(args):
         log_vmacro0 = torch.FloatTensor(1, 1).uniform_(-1.0, 1.3) if configs['fitting']['fit_vmacro'] else None
         log_vsini0 = torch.FloatTensor(1, 1).uniform_(-1.0, 1.0) if configs['fitting']['fit_vsini'] else None
         if configs['fitting']['fit_inst_res']:
-            inst_res0 = ensure_tensor(payne.model_res) if resolution == 'default' else ensure_tensor(int(resolution))
+            inst_res0 = ensure_tensor(default_res) if resolution == 'default' else ensure_tensor(int(resolution))
             inst_res0 = torch.min(
                 inst_res0 * torch.FloatTensor(1, 1).uniform_(0.9, 1.1),
                 ensure_tensor(payne.model_res)
             )
+            print(f'inst_res is initialized to {int(inst_res0)}')
+        elif resolution != 'default':
+            print(f'Fixing inst_res to {int(resolution)} (modified from observatioin default)')
+            inst_res0 = int(resolution) * torch.ones(1, 1)
+        elif (resolution == 'default') and (default_res != model_res):
+            print(f'Fixing inst_res to {int(default_res)}')
+            inst_res0 = int(default_res) * torch.ones(1, 1)
+        elif (resolution == 'default') and (default_res == model_res):
+            print('Observation has default resolution that matches model resolution---no instrumental broadening necessary')
+            inst_res0 = None
         else:
-            inst_res0 = None if resolution == 'default' else int(resolution) * torch.ones(1, 1)
+            raise RuntimeError("Resolution was parsed incorrectly---this should not happen.")
         # Begin Fit
         optimizer.fit(
             obs_flux=obs['spec'] if resolution == "default" else obs['conv_spec'],
@@ -728,4 +739,3 @@ def main(args):
             del optim_fit
             plt.close('all')
             gc.collect()
-
