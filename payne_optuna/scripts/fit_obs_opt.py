@@ -224,7 +224,7 @@ def main(args):
     # Initialize Emulator
     payne = PayneStitchedEmulator(
         models=models,
-        cont_deg=4,#configs['fitting']['cont_deg'],
+        cont_deg=configs['fitting']['cont_deg'],
         cont_wave_norm_range=(-10, 10),
         obs_wave=obs['wave'],
         obs_blaz=obs['scaled_blaz'],
