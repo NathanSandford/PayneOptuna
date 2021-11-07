@@ -8,7 +8,7 @@ from astropy.io import fits
 from astropy import units as u
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
-from payne_optuna.utils import get_geomotion_correction
+from payne_optuna.utils import get_geomotion_correction, find_runs
 
 
 class MasterFlats:
@@ -26,14 +26,13 @@ class MasterFlats:
 
     def get_blaze(self, trace_spat, std=2500):
         raw_blaze = self.get_raw_blaze(trace_spat)
-        if np.any((raw_blaze < 0) | (raw_blaze > 65000)):
-            bad_pix = np.argwhere((raw_blaze < 0) | (raw_blaze > 65000)).flatten()[[0, -1]] + [-5, 5]
-            idx = np.r_[0:bad_pix[0], bad_pix[1]:len(self.spec_arr)]
-            # idx = np.argwhere((raw_blaze < 0) | (raw_blaze > 65000)).flatten()[-1] + 5
-        else:
-            idx = np.r_[0:len(self.spec_arr)]
-            # idx = 0
-        f_flat_1d = UnivariateSpline(x=self.spec_arr[idx], y=raw_blaze[idx], s=self.spec_dim * std, ext='extrapolate')
+        mask = np.ones_like(raw_blaze, dtype=bool)
+        if np.any((raw_blaze < 0) | (raw_blaze > 1e5)):
+            bad_pix_reg = find_runs((raw_blaze < 0) | (raw_blaze > 1e5), 1)
+            bad_pix_reg_ext = np.array([reg + [max([-reg[0],-20]), 20] for reg in bad_pix_reg])
+            idx = np.concatenate([np.r_[reg[0]:reg[1]] for reg in bad_pix_reg_ext])
+            mask[idx] = False
+        f_flat_1d = UnivariateSpline(x=self.spec_arr[mask], y=raw_blaze[mask], s=self.spec_dim * std, ext='extrapolate')
         return f_flat_1d(self.spec_arr)
 
 
