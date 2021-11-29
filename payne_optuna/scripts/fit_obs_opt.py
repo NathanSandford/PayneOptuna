@@ -123,7 +123,8 @@ def main(args):
     #######################
     print('Generating masks')
     # Overlapping Orders
-    obs['ovrlp_mask'] = hires.get_ovrlp_mask(obs=obs)
+    #obs['ovrlp_mask'] = hires.get_ovrlp_mask(obs=obs)  # Don't actually need to mask these regions
+    obs['ovrlp_mask'] = np.ones_like(obs['mask'], dtype=bool)
     if detector_mask_file is not False:
         with open(detector_mask_file) as file:
             detector_masks = yaml.load(file, Loader=yaml.FullLoader)
@@ -180,12 +181,13 @@ def main(args):
     # Load Models
     models = []
     for i, model_config_file in enumerate(model_config_files):
-        if isinstance(orders, str) and orders.lower() == 'all':
-            pass
-        elif np.any(np.array(orders, dtype=int) < 0):
-            if str(int(np.abs(orders))) in str(model_config_file):
-                print(f'Skipping Model {model_config_file.name[:-4]}')
-                continue
+        # Don't need to skip w/ Stitched Emulator
+        #if isinstance(orders, str) and orders.lower() == 'all':
+        #    pass
+        #elif np.any(np.array(orders, dtype=int) < 0):
+        #    if str(int(np.abs(orders))) in str(model_config_file):
+        #        print(f'Skipping Model {model_config_file.name[:-4]}')
+        #        continue
         model = model_io.load_model(model_config_file)
         #  Mask Lines
         model_io.mask_lines(model, line_masks, mask_value=1.0)
@@ -199,18 +201,6 @@ def main(args):
     #print('Model bounds determined to be:')
     #[print(f'{i[0]:.2f} - {i[1]:.2f} Angstrom') for i in model_bounds]
     # Initialize Emulator
-    #payne = CompositePayneEmulator(
-    #    models=models,
-    #    model_bounds=model_bounds,
-    #    cont_deg=configs['fitting']['cont_deg'],
-    #    cont_wave_norm_range=(-10, 10),
-    #    obs_wave=obs['wave'],
-    #    obs_blaz=obs['scaled_blaz'],
-    #    include_model_errs=True,
-    #    model_res=default_res,
-    #    vmacro_method='iso_fft',
-    #)
-    # Initialize Emulator
     #payne = PayneOrderEmulator(
     #    models=models,
     #    cont_deg=configs['fitting']['cont_deg'],
@@ -221,7 +211,6 @@ def main(args):
     #    model_res=default_res,
     #    vmacro_method='iso_fft',
     #)
-    # Initialize Emulator
     payne = PayneStitchedEmulator(
         models=models,
         cont_deg=configs['fitting']['cont_deg'],
@@ -416,7 +405,15 @@ def main(args):
     stellar_label_priors = []
     for i, label in enumerate(payne.labels):
         if label in configs['fitting']['priors']:
-            if configs['fitting']['priors'][label][0] == 'N':
+            if (label in ['Teff', 'logg']) and configs['fitting']['use_gaia_phot']:
+                stellar_label_priors.append(
+                    UniformLogPrior(
+                        label,
+                        payne.unscale_stellar_labels(-0.55 * torch.ones(payne.n_stellar_labels))[i],
+                        payne.unscale_stellar_labels(0.55 * torch.ones(payne.n_stellar_labels))[i],
+                    )
+                )
+            elif configs['fitting']['priors'][label][0] == 'N':
                 stellar_label_priors.append(
                     GaussianLogPrior(
                         label,
@@ -508,8 +505,25 @@ def main(args):
                 configs['fitting']['priors']['Fe'][1],
                 configs['fitting']['priors']['Fe'][2],
             )
+        else:
+            raise RuntimeError("No prior provided for [Fe/H]")
+        if configs['fitting']['use_gaia_phot']:
+            fe_phot = np.vstack([
+                fe0,
+                obs['bp-rp'],
+                obs['g'],
+            ]).T
+            logg, logTeff = gaia_cmd_interp(fe_phot).flatten()
         for i, label in enumerate(payne.labels):
-            if label in configs['fitting']['priors']:
+            if (label == 'Teff') and configs['fitting']['use_gaia_phot']:
+                x0 = payne.scale_stellar_labels(
+                    10**logTeff * torch.ones(payne.n_stellar_labels)
+                )[i]
+            elif (label == 'logg') and configs['fitting']['use_gaia_phot']:
+                x0 = payne.scale_stellar_labels(
+                    logg * torch.ones(payne.n_stellar_labels)
+                )[i]
+            elif label in configs['fitting']['priors']:
                 if configs['fitting']['priors'][label][0] == 'N':
                     x0 = np.random.normal(
                         configs['fitting']['priors'][label][1],
