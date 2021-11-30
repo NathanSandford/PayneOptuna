@@ -1723,7 +1723,87 @@ class PayneOptimizer:
         raise NotImplementedError
 
     def prefit_stellar_labels(self, plot=False):
-        raise NotImplementedError
+        n_spec = 100
+        stellar_labels0 = torch.zeros(100, self.n_stellar_labels)
+        if type(self.priors['Fe']) == GaussianLogPrior:
+            fe0 = torch.zeros(n_spec).normal_(
+                self.priors['Fe'].mu,
+                self.priors['Fe'].sigma,
+            )
+        else:
+            fe0 = torch.zeros(n_spec).uniform_(
+                self.priors['Fe'].lower_bound,
+                self.priors['Fe'].upper_bound,
+            )
+        if self.use_gaia_phot:
+            fe_phot = torch.vstack([
+                fe0,
+                self.gaia_bprp,
+                self.gaia_g,
+            ]).T
+            logg, logTeff = self._gaia_fn(fe_phot.detach().numpy()).flatten()
+        for i, label in enumerate(self.emulator.labels):
+            if (label == 'Teff') and self.use_gaia_phot:
+                x0 = self.emulator.scale_stellar_labels(
+                    10 ** logTeff * torch.ones(self.n_stellar_labels)
+                )[i]
+            elif (label == 'logg') and self.use_gaia_phot:
+                x0 = self.emulator.scale_stellar_labels(
+                    logg * torch.ones(self.n_stellar_labels)
+                )[i]
+            elif label in self.priors:
+                if type(self.priors[label]) == GaussianLogPrior:
+                    x0 = torch.zeros(n_spec).normal_(
+                        self.priors[label].mu,
+                        self.priors[label].sigma,
+                    )
+                else:
+                    x0 = torch.zeros(n_spec).uniform_(
+                        self.priors[label].lower_bound,
+                        self.priors[label].upper_bound,
+                    )
+                if label == 'Fe':
+                    x0 = fe0
+                elif label not in ['Teff', 'logg', 'v_micro', 'Fe']:
+                    x0 += fe0
+                x0 = self.emulator.scale_stellar_labels(
+                    x0 * torch.ones(self.n_stellar_labels)
+                )[i]
+            else:
+                x0 = torch.zeros(n_spec).uniform_(-0.55, 0.55)
+            with torch.no_grad():
+                stellar_labels0[:, i] = ensure_tensor(x0)
+        if self.use_holtzman2015:
+            with torch.no_grad():
+                stellar_labels0[:, 2] = self.emulator.scale_stellar_labels(
+                    (2.478 - 0.325 * self.emulator.unscale_stellar_labels(stellar_labels0)[:, 1]) * torch.ones(
+                        self.emulator.n_stellar_labels)
+                )[2]
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=stellar_labels0,
+            rv=self.rv,
+            cont_coeffs=self.cont_coeffs,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        if self.loss_fn == 'neg_log_posterior':
+            loss0 = self.neg_log_posterior(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        else:
+            loss0 = self.loss_fn(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        return stellar_labels0[loss0.argmin()].unsqueeze(0)
+
+
 
     def init_optimizer_scheduler(self):
         optim_params = []
