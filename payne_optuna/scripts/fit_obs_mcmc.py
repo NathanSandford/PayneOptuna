@@ -120,7 +120,7 @@ def main(args):
     fig_dir.mkdir(parents=True, exist_ok=True)
     fits_dir = program_dir.joinpath(f'fits/{star}_{date}')
     fits_dir.mkdir(parents=True, exist_ok=True)
-    sample_dir = data_dir.joinpath('samples')
+    sample_dir = program_dir.joinpath('samples')
     sample_dir.mkdir(parents=True, exist_ok=True)
     model_config_files = sorted(list(model_config_dir.glob('*')))
     line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}")
