@@ -1722,7 +1722,7 @@ class PayneOptimizer:
     def prefit_inst_res(self, plot=False):
         raise NotImplementedError
 
-    def prefit_stellar_labels(self, plot=False):
+    def prefit_stellar_labels(self):
         n_spec = 100
         stellar_labels0 = torch.zeros(100, self.n_stellar_labels)
         if type(self.priors['Fe']) == GaussianLogPrior:
