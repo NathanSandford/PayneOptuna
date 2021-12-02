@@ -566,7 +566,7 @@ def main(args):
             )
             print(f'inst_res is initialized to {int(inst_res0)}')
         elif resolution != 'default':
-            print(f'Fixing inst_res to {int(resolution)} (modified from observatioin default)')
+            print(f'Fixing inst_res to {int(resolution)} (modified from observation default)')
             inst_res0 = int(resolution) * torch.ones(1, 1)
         elif (resolution == 'default') and (default_res != model_res):
             print(f'Fixing inst_res to {int(default_res)}')
