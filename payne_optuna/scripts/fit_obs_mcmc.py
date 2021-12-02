@@ -2,6 +2,7 @@ import argparse
 import yaml
 from pathlib import Path
 from copy import deepcopy
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,6 @@ from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import model_io
 
 import emcee
-from tqdm import tqdm
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -320,16 +320,22 @@ def main(args):
         if configs['fitting']['fit_vmacro']:
             reverse_idx -= 1
             log_vmacro = theta[:, reverse_idx]
+        elif optim_fit['log_vmacro'] != None:
+            log_vmacro = optim_fit['log_vmacro'][0] * np.ones(nwalkers)
         else:
             log_vmacro = None
         if configs['fitting']['fit_vsini']:
             reverse_idx -= 1
             log_vsini = theta[:, reverse_idx]
+        elif optim_fit['log_vsini'] != None:
+            log_vsini = optim_fit['log_vsini'][0] * np.ones(nwalkers)
         else:
             log_vsini = None
         if configs['fitting']['fit_inst_res']:
             reverse_idx -= 1
             inst_res = theta[:, reverse_idx]
+        elif optim_fit['inst_res'] != None:
+            inst_res = optim_fit['inst_res'][0] * np.ones(nwalkers)
         else:
             inst_res = None
         cont_coeffs = optim_fit["cont_coeffs"]
