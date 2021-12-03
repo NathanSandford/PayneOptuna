@@ -506,6 +506,8 @@ def main(args):
         vectorize=True,
         backend=backend,
     )
+    if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
+        raise RuntimeError("Walkers are improperly initialized")
     # Sample Until Convergence is Reached
     max_steps = int(1e5)
     index = 0
@@ -607,8 +609,8 @@ def main(args):
             obs['g'] * np.ones(unscaled_flat_samples.shape[0])
         ]).T
         logg, logTeff = gaia_cmd_interp(fe_phot_flat).T
-        scaled_flat_samples[:, 0] = 10 ** logTeff
-        scaled_flat_samples[:, 1] = logg
+        unscaled_flat_samples[:, 0] = 10 ** logTeff
+        unscaled_flat_samples[:, 1] = logg
     samples = np.concatenate([
         unscaled_samples,
         scaled_samples[:, :, payne.n_stellar_labels:]
