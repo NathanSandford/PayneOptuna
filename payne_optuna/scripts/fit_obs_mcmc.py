@@ -12,6 +12,7 @@ from payne_optuna.fitting import PayneStitchedEmulator
 from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior, gaussian_log_likelihood
 from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import model_io
+from payne_optuna.misc.sampling import clamp_p0
 
 import emcee
 
@@ -32,50 +33,6 @@ def parse_args(options=None):
     else:
         args = parser.parse_args(options)
     return args
-
-
-def clamp_p0(p0_, label_names, priors, model):
-    fe_idx = model.labels.index('Fe')
-    stellar_labels_unscaled_ = model.unscale_stellar_labels(ensure_tensor(p0_)[:, :model.n_stellar_labels])
-    other_labels_ = ensure_tensor(p0_)[:, model.n_stellar_labels:]
-    stellar_labels_unscaled = torch.zeros_like(stellar_labels_unscaled_)
-    other_labels = torch.zeros_like(other_labels_)
-    # Clamp Fe first
-    fe_prior = priors['stellar_labels'][fe_idx]
-    fe_lower_bound = fe_prior.lower_bound.item() if type(fe_prior) == UniformLogPrior else -np.inf
-    fe_upper_bound = fe_prior.upper_bound.item() if type(fe_prior) == UniformLogPrior else np.inf
-    stellar_labels_unscaled[:, fe_idx] = stellar_labels_unscaled_[:, fe_idx].clamp(
-        min=fe_lower_bound+1e-4,
-        max=fe_upper_bound-1e-4,
-    )
-    # Clamp remaining stellar labels
-    for label in model.labels:
-        idx = model.labels.index(label)
-        prior = priors['stellar_labels'][idx]
-        lower_bound = prior.lower_bound.item() if type(prior) == UniformLogPrior else -np.inf
-        upper_bound = prior.upper_bound.item() if type(prior) == UniformLogPrior else np.inf
-        if label == 'Fe':
-            continue
-        if label in ['Teff', 'logg', 'v_micro',]:
-            stellar_labels_unscaled[:, idx] = stellar_labels_unscaled_[:, idx].clamp(
-                min=lower_bound+1e-4,
-                max=upper_bound-1e-4,
-            )
-        else:
-            stellar_labels_unscaled[:, idx] = (stellar_labels_unscaled_[:, idx] - stellar_labels_unscaled[:, fe_idx]).clamp(
-                min=lower_bound+1e-4,
-                max=upper_bound-1e-4,
-            ) + stellar_labels_unscaled[:, fe_idx]
-    # Clamp additional labels
-    for i, label in enumerate(set(model.labels) ^ set(label_names)):
-        prior = priors[label]
-        lower_bound = prior.lower_bound.item() if type(prior) == UniformLogPrior else -np.inf
-        upper_bound = prior.upper_bound.item() if type(prior) == UniformLogPrior else np.inf
-        other_labels[:, i] = other_labels_[:, i].clamp(min=lower_bound, max=upper_bound)
-    p0 = torch.hstack(
-        [model.scale_stellar_labels(stellar_labels_unscaled), other_labels]
-    ).detach().numpy()
-    return p0
 
 
 def main(args):
@@ -456,6 +413,7 @@ def main(args):
         axes[-1].set_xlabel("step number")
         plt.savefig(
             fig_dir.joinpath(f"{obs_name}_burnin_1_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+        plt.close('all')
     print('Burn-In 1 Complete')
 
     ##############################
@@ -556,6 +514,7 @@ def main(args):
                 ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("step number")
             plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt.png"))
+            plt.close('all')
 
     #################################
     ######## PROCESS SAMPLES ########
@@ -665,6 +624,8 @@ def main(args):
             ax.yaxis.set_label_coords(-0.1, 0.5)
         axes[-1].set_xlabel("step number")
         plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+        plt.close('all')
     if configs['output']['plot_corner']:
         fig = corner(flat_samples, labels=label_names)
         fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+        plt.close('all')
