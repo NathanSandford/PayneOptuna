@@ -50,6 +50,11 @@ def main(args):
     mpl.rc('legend', edgecolor='k', framealpha=1, fancybox=False)
     mpl.rc('figure', dpi=300)
 
+    #########################
+    ######## Set RNG ########
+    #########################
+    rng = np.random.default_rng(8962)
+
     #####################
     ######## I/O ########
     #####################
@@ -345,7 +350,7 @@ def main(args):
         label_names.append("log_vmacro")
     p0_list.append(optim_fit["rv"])
     label_names.append("rv")
-    p0_ = np.concatenate(p0_list) + 0.1 * np.random.randn(128, len(label_names))
+    p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(128, len(label_names)))
     p0 = clamp_p0(p0_, label_names, priors, payne)
     if configs['fitting']['use_gaia_phot']:
         p0 = p0[:, 2:]
@@ -431,7 +436,7 @@ def main(args):
         p0_ = np.hstack([
             np.zeros((nwalkers, 1)),
             np.zeros((nwalkers, 1)),
-            best_walker + np.random.normal(
+            best_walker + rng.normal(
                 loc=0,
                 scale=last_state.coords.std(axis=0) / 2,
                 size=(nwalkers, best_walker.shape[0])
