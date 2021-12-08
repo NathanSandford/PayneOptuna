@@ -388,7 +388,7 @@ def main(args):
             continue
         p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
         log_prob_mean = sampler.get_log_prob(discard=sampler.iteration - 1).mean()
-        print(f" ({obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag})")
+        print(f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} (sampler.iteration): ")
         print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
         print(f'mean log(d_logP) = {np.log10(np.abs((log_prob_mean - log_prob_mean_last) / log_prob_mean)):0.2f}')
         if np.abs(np.max(p_mean - p_mean_last)) < 0.001 \
@@ -486,9 +486,10 @@ def main(args):
         )
         autocorr[index] = np.mean(tau)
         print(
-            f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} " +
+            f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} (sampler.iteration): " +
             f"Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
-            f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f},\n" +
+            f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f}" +
+            f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} (sampler.iteration): " +
             f"dTau/Tau = {np.max(np.abs(old_tau - tau) / tau):.3f}, " +
             f"mean acceptance fraction = {sampler.acceptance_fraction.mean():.2f}"
         )
