@@ -487,7 +487,7 @@ def main(args):
         autocorr[index] = np.mean(tau)
         print(
             f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} (sampler.iteration): " +
-            f"Step {sampler.iteration}: Tau = {np.max(tau):.0f}, " +
+            f"Tau = {np.max(tau):.0f}, " +
             f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f}" +
             f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} (sampler.iteration): " +
             f"dTau/Tau = {np.max(np.abs(old_tau - tau) / tau):.3f}, " +
