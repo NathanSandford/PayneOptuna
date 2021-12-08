@@ -39,7 +39,7 @@ def clamp_p0(p0_, label_names, priors, model):
                 max=upper_bound-1e-4,
             ) + stellar_labels_unscaled[:, fe_idx]
     # Clamp additional labels
-    for i, label in enumerate(set(model.labels) ^ set(label_names)):
+    for i, label in enumerate(label_names[model.n_stellar_labels:]):
         prior = priors[label]
         lower_bound = prior.lower_bound.item() if type(prior) == UniformLogPrior else -np.inf
         upper_bound = prior.upper_bound.item() if type(prior) == UniformLogPrior else np.inf
