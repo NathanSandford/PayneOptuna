@@ -342,6 +342,7 @@ def main(args):
     #################################
     ### Run Burn-In 1 ###
     # Initialize Walkers
+    n_walkers_burnin = configs['fitting']['n_walkers_burnin']
     p0_list = [optim_fit["stellar_labels"][0]]
     label_names = deepcopy(payne.labels)
     if configs['fitting']['fit_inst_res']:
@@ -355,7 +356,7 @@ def main(args):
         label_names.append("log_vmacro")
     p0_list.append(optim_fit["rv"])
     label_names.append("rv")
-    p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(128, len(label_names)))
+    p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(n_walkers_burnin, len(label_names)))
     p0 = clamp_p0(p0_, label_names, priors, payne)
     if configs['fitting']['use_gaia_phot']:
         p0 = p0[:, 2:]
@@ -430,27 +431,27 @@ def main(args):
     ######## RUN SAMPLING ########
     ##############################
     # Initialize Walkers
-    nwalkers = 128
+    n_walkers_sampling = configs['fitting']['n_walkers_burnin']
     resume_from_burnin1 = False
     last_state = sampler.get_last_sample()
     if resume_from_burnin1:
-        print("Resuming from Burn-In")
+        print(f"Resuming from Burn-In ({last_state.coords.shape[0]} walkers)")
         p0 = last_state.coords
     elif configs['fitting']['use_gaia_phot']:
         best_walker = last_state.coords[last_state.log_prob.argmax()]
         p0_ = np.hstack([
-            np.zeros((nwalkers, 1)),
-            np.zeros((nwalkers, 1)),
+            np.zeros((n_walkers_sampling, 1)),
+            np.zeros((n_walkers_sampling, 1)),
             best_walker + rng.normal(
                 loc=0,
                 scale=last_state.coords.std(axis=0) / 2,
-                size=(nwalkers, best_walker.shape[0])
+                size=(n_walkers_sampling, best_walker.shape[0])
             )
         ])
         p0 = clamp_p0(p0_, label_names, priors, payne)[:, 2:]
     else:
         best_walker = last_state.coords[last_state.log_prob.argmax()]
-        p0_ = best_walker + 1e-3 * np.random.randn(nwalkers, best_walker.shape[0])
+        p0_ = best_walker + 1e-3 * np.random.randn(n_walkers_sampling, best_walker.shape[0])
         p0 = clamp_p0(p0_, label_names, priors, payne)
     nwalkers, ndim = p0.shape
     # Initialize Backend
