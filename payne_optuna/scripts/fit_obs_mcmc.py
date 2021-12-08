@@ -3,6 +3,7 @@ import yaml
 from pathlib import Path
 from copy import deepcopy
 from tqdm import tqdm
+from warnings import warn
 
 import numpy as np
 import pandas as pd
@@ -195,7 +196,11 @@ def main(args):
                     obs['wave'][j, np.min([len(obs['wave'][j])-1, conv_mask_range[1]])],
                     color='grey', alpha=0.2, label=label,
                 )
-            ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][j][obs['mask'][j]], 0.95))
+            try:
+                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][j][obs['mask'][j]], 0.95))
+            except IndexError:
+                warn(f'No unmasked pixels in order idx={j}')
+                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][j], 0.95))
             if j == 0:
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
