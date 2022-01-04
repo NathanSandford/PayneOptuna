@@ -105,7 +105,7 @@ def main(args):
         losses[i] = tmp['loss']
     best_idx = np.argmin(losses)
     print(f'Best from optimization: Trial {best_idx + 1}')
-    optim_fit = np.load(fit_files[i], allow_pickle=True)
+    optim_fit = np.load(fit_files[best_idx], allow_pickle=True)
     # Load Observation
     obs = {}
     obs['wave'] = optim_fit['obs_wave']
