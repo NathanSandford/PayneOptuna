@@ -14,6 +14,7 @@ from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior
 from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import model_io
 from payne_optuna.misc.sampling import clamp_p0
+from payne_optuna.misc.sampling import MCMCReader
 
 import emcee
 
@@ -94,7 +95,7 @@ def main(args):
     ######## LOAD BEST FIT ########
     ###############################
     # Find Best Fit from Optimizer
-    fit_files = sorted(list(fits_dir.glob(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_*.npz")))
+    fit_files = sorted(list(fits_dir.glob(f"{obs_name}_fit_{resolution}_{'bin' if bin_errors else 'int'}_*.npz")))
     if len(fit_files) == 0:
         raise RuntimeError(
             f"Could not load optimizer solutions."
@@ -162,14 +163,31 @@ def main(args):
         vmacro_method='iso_fft',
     )
 
-    ######################################
-    ######## DEGRADE SIGNAL/NOISE ########
-    ######################################
+    #####################################
+    ######## GET ALL LABEL NAMES ########
+    #####################################
+    label_names = deepcopy(payne.labels)
+    if configs['fitting']['fit_inst_res']:
+        label_names.append("inst_res")
+    if configs['fitting']['fit_vsini']:
+        label_names.append("log_vsini")
+    if configs['fitting']['fit_vmacro']:
+        label_names.append("log_vmacro")
+    label_names.append("rv")
+
+    ##############################################################
+    ######## DEGRADE SIGNAL/NOISE & LOAD PREVIOUS SAMPLEs ########
+    ##############################################################
     if snr_rdx is not False:
+        # Decrease S/N
         print(f'Increase Noise by a Factor of {snr_rdx}')
         D, sigma_D = noise_up_spec(obs['flux'], obs['errs'], snr_rdx, seed=8645)
         obs['flux'] = D
         obs['errs'] = sigma_D
+        # Find Best Fit from Previous MCMC
+        print('Loading samples from default S/N MCMC')
+        previous_sample_file = sample_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}.h5")
+        reader = MCMCReader(previous_sample_file, payne, label_names)
 
     ###############################
     ######## PLOT SPECTRUM ########
@@ -343,19 +361,24 @@ def main(args):
     ### Run Burn-In 1 ###
     # Initialize Walkers
     n_walkers_burnin = configs['fitting']['n_walkers_burnin']
-    p0_list = [optim_fit["stellar_labels"][0]]
-    label_names = deepcopy(payne.labels)
-    if configs['fitting']['fit_inst_res']:
-        p0_list.append(optim_fit["inst_res"][0])
-        label_names.append("inst_res")
-    if configs['fitting']['fit_vsini']:
-        p0_list.append(optim_fit["log_vsini"][0])
-        label_names.append("log_vsini")
-    if configs['fitting']['fit_vmacro']:
-        p0_list.append(optim_fit["log_vmacro"][0])
-        label_names.append("log_vmacro")
-    p0_list.append(optim_fit["rv"])
-    label_names.append("rv")
+    if snr_rdx is False:
+        p0_list = [optim_fit["stellar_labels"][0]]
+        if configs['fitting']['fit_inst_res']:
+            p0_list.append(optim_fit["inst_res"][0])
+        if configs['fitting']['fit_vsini']:
+            p0_list.append(optim_fit["log_vsini"][0])
+        if configs['fitting']['fit_vmacro']:
+            p0_list.append(optim_fit["log_vmacro"][0])
+        p0_list.append(optim_fit["rv"])
+    else:
+        p0_list = [reader.unscaled_mean[:payne.n_stellar_labels]]
+        if configs['fitting']['fit_inst_res']:
+            p0_list.append(reader.unscaled_mean[label_names.index('inst_res')])
+        if configs['fitting']['fit_vsini']:
+            p0_list.append(reader.unscaled_mean[label_names.index('log_vsini')])
+        if configs['fitting']['fit_vmacro']:
+            p0_list.append(reader.unscaled_mean[label_names.index('log_vmacro')])
+        p0_list.append(reader.unscaled_mean[label_names.index('rv')])
     p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(n_walkers_burnin, len(label_names)))
     p0 = clamp_p0(p0_, label_names, priors, payne)
     if configs['fitting']['use_gaia_phot']:
