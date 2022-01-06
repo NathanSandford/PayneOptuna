@@ -13,8 +13,7 @@ from payne_optuna.fitting import PayneStitchedEmulator
 from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior, gaussian_log_likelihood
 from payne_optuna.utils import ensure_tensor, find_runs, noise_up_spec
 from payne_optuna.misc import model_io
-from payne_optuna.misc.sampling import clamp_p0
-from payne_optuna.misc.sampling import MCMCReader
+from payne_optuna.misc.sampling import clamp_p0, MCMCReader
 
 import emcee
 
@@ -371,14 +370,14 @@ def main(args):
             p0_list.append(optim_fit["log_vmacro"][0])
         p0_list.append(optim_fit["rv"])
     else:
-        p0_list = [reader.unscaled_mean[:payne.n_stellar_labels]]
+        p0_list = [reader.scaled_mean[:payne.n_stellar_labels]]
         if configs['fitting']['fit_inst_res']:
-            p0_list.append(reader.unscaled_mean[label_names.index('inst_res')])
+            p0_list.append([reader.scaled_mean[label_names.index('inst_res')]])
         if configs['fitting']['fit_vsini']:
-            p0_list.append(reader.unscaled_mean[label_names.index('log_vsini')])
+            p0_list.append([reader.scaled_mean[label_names.index('log_vsini')]])
         if configs['fitting']['fit_vmacro']:
-            p0_list.append(reader.unscaled_mean[label_names.index('log_vmacro')])
-        p0_list.append(reader.unscaled_mean[label_names.index('rv')])
+            p0_list.append([reader.scaled_mean[label_names.index('log_vmacro')]])
+        p0_list.append([reader.scaled_mean[label_names.index('rv')]])
     p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(n_walkers_burnin, len(label_names)))
     p0 = clamp_p0(p0_, label_names, priors, payne)
     if configs['fitting']['use_gaia_phot']:
