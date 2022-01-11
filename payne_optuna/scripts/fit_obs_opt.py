@@ -80,9 +80,10 @@ def main(args):
     obs_spec_file = obs_dir.joinpath(f'spec1d_{star}_{frame}.fits')
     telluric_file = mask_dir.joinpath(f"{configs['masks']['telluric']}")
     detector_mask_file = mask_dir.joinpath(f"{configs['masks']['detector']}")
-    line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}")
+    line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}") \
+        if configs['masks']['line'] not in [False, None] else False
     nlte_errs_files = sorted(list(mask_dir.joinpath(configs['masks']['nlte']).glob('*'))) \
-        if configs['masks']['nlte'] is not False else False
+        if configs['masks']['nlte'] not in [False, None] else False
 
     ######################
     ######## DATA ########
@@ -163,14 +164,14 @@ def main(args):
     ######## MODELS ########
     ########################
     # Load Line Masks
-    print(f'Loading line masks')
-    if line_mask_file is not False:
+    if line_mask_file not in [False, None]:
+        print(f'Loading line masks')
         with open(line_mask_file) as file:
             line_masks = yaml.load(file, Loader=yaml.FullLoader)
     else:
-        line_masks = []
+        line_masks = None
     # Load NLTE Uncertainties
-    if nlte_errs_files is not False:
+    if nlte_errs_files not in [False, None]:
         print('Loading NLTE Uncertainties')
         nlte_errs = []
         for file in nlte_errs_files:
