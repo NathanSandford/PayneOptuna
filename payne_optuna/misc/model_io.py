@@ -22,7 +22,11 @@ def load_model(config_file, verbose=True):
     nn_model = LightningPaynePerceptron.load_from_checkpoint(
         str(ckpt_file),
         input_dim=meta['input_dim'],
-        output_dim=meta['output_dim']
+        output_dim=meta['output_dim'],
+        n_layers=configs['architecture']['n_layers'],
+        activation=configs['architecture']['activation'],
+        n_neurons=configs['architecture']['n_neurons'],
+        dropout=configs['architecture']['dropout'],
     )
     nn_model.load_meta(meta)
     # Load Model Error from Validation
