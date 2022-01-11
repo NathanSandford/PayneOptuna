@@ -124,14 +124,14 @@ def main(args):
     ######## MODELS ########
     ########################
     # Load Line Masks
-    print(f'Loading line masks')
-    if line_mask_file is not False:
+    if line_mask_file not in [False, None]:
+        print(f'Loading line masks')
         with open(line_mask_file) as file:
             line_masks = yaml.load(file, Loader=yaml.FullLoader)
     else:
-        line_masks = []
+        line_masks = None
     # Load NLTE Uncertainties
-    if nlte_errs_files is not False:
+    if nlte_errs_files not in [False, None]:
         print('Loading NLTE Uncertainties')
         nlte_errs = []
         for file in nlte_errs_files:
