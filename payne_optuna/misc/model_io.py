@@ -63,8 +63,11 @@ def find_model_breaks(models, obs):
 
 
 def mask_lines(model, line_masks, mask_value=1.0):
-    for line, mask in line_masks.items():
-        model.mod_errs[
-            (model.wavelength > mask['center'] - mask['width'])
-            & (model.wavelength < mask['center'] + mask['width'])
-        ] = mask_value
+    if (line_masks is None) or len(line_masks) == 0:
+        pass
+    else:
+        for line, mask in line_masks.items():
+            model.mod_errs[
+                (model.wavelength > mask['center'] - mask['width'])
+                & (model.wavelength < mask['center'] + mask['width'])
+            ] = mask_value
