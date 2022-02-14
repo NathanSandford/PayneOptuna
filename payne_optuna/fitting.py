@@ -62,6 +62,7 @@ class PayneEmulator(torch.nn.Module):
         rv_scale=100,
         cont_wave_norm_range=(-10,10),
         obs_wave=None,
+        obs_blaz=None,
         model_res=None,
         include_model_errs=True,
         vmacro_method='iso',
@@ -99,6 +100,13 @@ class PayneEmulator(torch.nn.Module):
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
         self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
+
+        if obs_blaz is not None:
+            self.obs_blaz = ensure_tensor(obs_blaz)
+        else:
+            self.obs_blaz = torch.ones_like(self.obs_wave)
+
+        self.n_mod_pix = self.mod_wave.shape[1]
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
@@ -328,9 +336,9 @@ class PayneEmulator(torch.nn.Module):
         # Calculate Continuum Flux
         cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
         if self.include_model_errs:
-            return intp_flux * cont_flux, intp_errs * cont_flux
+            return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
         else:
-            return intp_flux * cont_flux, torch.zeros_like(intp_flux)
+            return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
 
     def numpy(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         flux, errs = self.forward(stellar_labels, rv, vmacro, cont_coeffs, inst_res, vsini)
@@ -394,9 +402,9 @@ class PayneEmulator(torch.nn.Module):
         # Calculate Continuum Flux
         cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
         if self.include_model_errs:
-            return intp_flux * cont_flux, intp_errs * cont_flux
+            return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
         else:
-            return intp_flux * cont_flux, torch.zeros_like(intp_flux)
+            return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
 
 
 class CompositePayneEmulator(torch.nn.Module):
@@ -408,6 +416,7 @@ class CompositePayneEmulator(torch.nn.Module):
             rv_scale=100,
             cont_wave_norm_range=(-10, 10),
             obs_wave=None,
+            obs_blaz=None,
             model_res=None,
             include_model_errs=True,
             vmacro_method='iso',
@@ -450,6 +459,13 @@ class CompositePayneEmulator(torch.nn.Module):
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
         self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
+
+        if obs_blaz is not None:
+            self.obs_blaz = ensure_tensor(obs_blaz)
+        else:
+            self.obs_blaz = torch.ones_like(self.obs_wave)
+
+        self.n_mod_pix = self.mod_wave.shape[1]
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
@@ -774,9 +790,9 @@ class CompositePayneEmulator(torch.nn.Module):
         # Calculate Continuum Flux
         cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
         if self.include_model_errs:
-            return intp_flux * cont_flux, intp_errs * cont_flux
+            return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
         else:
-            return intp_flux * cont_flux, torch.zeros_like(intp_flux)
+            return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
 
 
 class PayneOrderEmulator(PayneEmulator):
@@ -1213,6 +1229,7 @@ class PayneStitchedEmulator(PayneEmulator):
         else:
             self.obs_blaz = torch.ones_like(self.obs_wave)
 
+        self.n_mod_pix = self.mod_wave.shape[1]
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix = self.obs_wave.shape[1]
 
@@ -1603,7 +1620,7 @@ class PayneOptimizer:
                 self.log_vmacro = self.init_params['log_vmacro'].requires_grad_() if self.init_params[
                                                                                          'log_vmacro'] is not None else None
             else:
-                self.vmacro = self.init_params['vmacro'] if self.init_params['vmacro'] is not None else None
+                self.vmacro = self.init_params['log_vmacro'] if self.init_params['log_vmacro'] is not None else None
         if self.init_params['log_vsini'] == 'prefit':
             if self.params['log_vsini'] == 'fit':
                 self.log_vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
