@@ -85,8 +85,7 @@ class PayneEmulator(torch.nn.Module):
         elif vmacro_method == 'iso':
             self.vmacro_broaden = self.vmacro_iso_broaden
         else:
-            print("vmacro_method not recognized, defaulting to 'iso'")
-            self.vmacro_broaden = self.vmacro_iso_broaden
+            raise ValueError("vmacro_method must be one of 'iso', 'iso_fft', or 'rt_fft'")
 
         self.rv_scale = rv_scale
         self.cont_deg = cont_deg
@@ -345,20 +344,39 @@ class PayneEmulator(torch.nn.Module):
         return flux.detach().numpy(), errs.detach().numpy()
 
     def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+        n_spec = stellar_labels.shape[0]
         # Model Spectrum
         norm_flux = self.model(stellar_labels)
-        # Macroturbulent Broadening
-        if vmacro is not None:
-            conv_flux, conv_errs = self.vmacro_broaden(
+        norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
+        if (inst_res is not None) and (vmacro is not None) and (self.vmacro_method == 'iso_fft'):
+            conv_flux, conv_errs = self.inst_vmacro_iso_broaden_fft(
                 wave=self.mod_wave,
                 flux=norm_flux,
-                errs=self.mod_errs,
+                errs=norm_errs,
+                inst_res=inst_res,
                 vmacro=vmacro,
-                ks=21,
+                model_res=self.model_res,
             )
         else:
-            conv_flux = norm_flux
-            conv_errs = self.mod_errs
+            # Instrumental Broadening
+            if inst_res is not None:
+                conv_flux, conv_errs = self.inst_broaden(
+                    wave=self.mod_wave,
+                    flux=norm_flux,
+                    errs=norm_errs,
+                    inst_res=inst_res,
+                    model_res=self.model_res,
+                )
+            else:
+                conv_flux, conv_errs = norm_flux, norm_errs
+            # Macroturbulent Broadening
+            if vmacro is not None:
+                conv_flux, conv_errs = self.vmacro_broaden(
+                    wave=self.mod_wave,
+                    flux=conv_flux,
+                    errs=conv_errs,
+                    vmacro=vmacro,
+                )
         # Rotational Broadening
         if vsini is not None:
             conv_flux, conv_errs = self.rot_broaden(
@@ -367,39 +385,19 @@ class PayneEmulator(torch.nn.Module):
                 errs=conv_errs,
                 vsini=vsini,
             )
-        # RV Shift
-        shifted_flux, shifted_errs = self.doppler_shift(
+        # Doppler Shift
+        doppler_wave = self.get_doppler_wave(
             wave=self.mod_wave,
-            flux=conv_flux,
-            errs=conv_errs,
             rv=rv * self.rv_scale,
         )
-        # Interpolate to Observed Wavelength
-        intp_flux = self.interp(
-            x=self.mod_wave,
-            y=shifted_flux,
-            x_new=self.obs_wave,
-            fill=1.0,
+        # Interpolation to Observed Wavelength
+        intp_flux, intp_errs = self.interp_flux(
+            old_wave=doppler_wave,
+            new_wave=self.obs_wave,
+            flux=conv_flux,
+            errs=conv_errs,
         )
-        if self.include_model_errs:
-            intp_errs = self.interp(
-                x=self.mod_wave,
-                y=shifted_errs,
-                x_new=self.obs_wave,
-                fill=np.inf,
-            )
-        else:
-            intp_errs = None
-        # Instrumental Broadening
-        if inst_res is not None:
-            intp_flux, intp_errs = self.inst_broaden(
-                wave=self.obs_wave,
-                flux=intp_flux,
-                errs=intp_errs,
-                inst_res=inst_res,
-                model_res=self.model_res,
-            )
-        # Calculate Continuum Flux
+        # Continuum Correction
         cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
         if self.include_model_errs:
             return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
