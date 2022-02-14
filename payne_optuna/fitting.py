@@ -106,7 +106,7 @@ class PayneEmulator(torch.nn.Module):
         else:
             self.obs_blaz = torch.ones_like(self.obs_wave)
 
-        self.n_mod_pix = self.mod_wave.shape[1]
+        self.n_mod_pix = self.mod_wave.shape[0]
         self.n_obs_ord = self.obs_wave.shape[0]
         self.n_obs_pix_per_ord = self.obs_wave.shape[1]
 
