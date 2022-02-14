@@ -192,16 +192,27 @@ class PayneEmulator(torch.nn.Module):
             errs_conv = None
         return flux_conv, errs_conv
 
-    def doppler_shift(self, wave, flux, errs, rv):
+    #def doppler_shift(self, wave, flux, errs, rv):
+    #    c = torch.tensor([2.99792458e5])  # km/s
+    #    doppler_factor = torch.sqrt((1 - rv / c) / (1 + rv / c))
+    #    new_wave = wave.unsqueeze(0) * doppler_factor.unsqueeze(-1)
+    #    shifted_flux = self.interp(wave, flux, new_wave, fill=1.0).squeeze()
+    #    if errs is not None:
+    #        shifted_errs = self.interp(wave, errs, new_wave, fill=np.inf).squeeze()
+    #    else:
+    #        shifted_errs = None
+    #    return shifted_flux, shifted_errs
+
+    @staticmethod
+    def get_doppler_wave(wave, rv):
+        n_spec = rv.shape[0]
+        n_ords = wave.shape[0]
+        n_pix = wave.shape[1]
         c = torch.tensor([2.99792458e5])  # km/s
-        doppler_factor = torch.sqrt((1 - rv / c) / (1 + rv / c))
-        new_wave = wave.unsqueeze(0) * doppler_factor.unsqueeze(-1)
-        shifted_flux = self.interp(wave, flux, new_wave, fill=1.0).squeeze()
-        if errs is not None:
-            shifted_errs = self.interp(wave, errs, new_wave, fill=np.inf).squeeze()
-        else:
-            shifted_errs = None
-        return shifted_flux, shifted_errs
+        doppler_factor = torch.sqrt((c - rv) / (c + rv))
+        shifted_wave = doppler_factor.repeat_interleave(n_ords * n_pix).view(n_spec * n_ords, -1) \
+                       * wave.repeat(n_spec, 1, 1).view(n_spec * n_ords, -1)
+        return shifted_wave.view(n_spec, n_ords, n_pix)
 
     @staticmethod
     def vmacro_iso_broaden(wave, flux, errs, vmacro, ks: int = 21):
