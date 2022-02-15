@@ -54,6 +54,18 @@ def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
     return torch.sum(loglike, axis=[1, 2])
 
 
+def gaussian_log_likelihood_multi(pred, target, pred_errs, target_errs):
+    tot_vars = pred_errs ** 2 + target_errs ** 2
+    mask = torch.isfinite(tot_vars)
+    tot_vars[~mask] = 1e10
+    pred[~mask] = 0
+    target[~torch.all(mask, axis=0)] = 0
+    loglike = -0.5 * (
+        torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
+    )
+    return torch.sum(loglike, axis=[1, 2, 3])
+
+
 class PayneEmulator(torch.nn.Module):
     def __init__(
         self,
@@ -1545,6 +1557,49 @@ class PayneStitchedEmulator(PayneEmulator):
             return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
 
 
+class PayneEmulatorMulti(torch.nn.Module):
+    def __init__(
+            self,
+            emulators,
+    ):
+        super(PayneEmulatorMulti, self).__init__()
+        self.emulators = emulators
+        self.n_emulators = len(emulators)
+        self.n_obs_ord = self.emulators[0].n_obs_ord
+        self.n_obs_pix = self.emulators[0].n_obs_pix
+
+        self.labels = self.emulators[0].labels
+        self.n_stellar_labels = self.emulators[0].n_stellar_labels
+
+        self.stellar_labels_min = self.emulators[0].stellar_labels_min
+        self.stellar_labels_max = self.emulators[0].stellar_labels_max
+        self.scale_stellar_labels = self.emulators[0].scale_stellar_labels
+        self.unscale_stellar_labels = self.emulators[0].unscale_stellar_labels
+
+        self.rv_scale = self.emulators[0].rv_scale
+
+        self.cont_deg = self.emulators[0].cont_deg
+        self.n_cont_coeffs = self.emulators[0].n_cont_coeffs
+        self.cont_wave_norm_range = self.emulators[0].cont_wave_norm_range
+
+    def calc_cont(self, cont_coeffs):
+        self.out_shape = (self.n_emulators, self.n_obs_ord, self.n_obs_pix)
+        cont = torch.zeros(self.out_shape)
+        for i, emulator in enumerate(self.emulators):
+            cont[i, :, :] = emulator.calc_cont(cont_coeffs[i], emulator.obs_wave_)
+        return cont
+
+    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+        n_spec = stellar_labels.shape[0]
+        self.out_shape = (n_spec, self.n_emulators, self.n_obs_ord, self.n_obs_pix)
+        mod_flux = torch.zeros(self.out_shape)
+        mod_errs = torch.zeros(self.out_shape)
+        for i, emulator in enumerate(self.emulators):
+            mod_flux[:, i, :, :], mod_errs[:, i, :, :] = emulator.forward(stellar_labels, rv, vmacro, cont_coeffs[i],
+                                                                          inst_res, vsini)
+        return mod_flux, mod_errs
+
+
 class PayneOptimizer:
     def __init__(
             self,
@@ -2198,6 +2253,704 @@ class PayneOptimizer:
         self.log_vsini = self.history['log_vsini'][np.argmin(self.history['loss'])]
         self.cont_coeffs = [self.history['cont_coeffs'][np.argmin(self.history['loss'])][i] for i in
                             range(self.n_cont_coeffs)]
+        self.loss = np.min(self.history['loss'])
+        self.best_model, self.best_model_errs = self.forward()
+
+        print(f"Best Epoch: {np.argmin(self.history['loss'])}, Best Loss: {self.loss:.6f}")
+
+        if not epoch < max_epochs and verbose:
+            print('max_epochs reached')
+        if not delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'] and verbose:
+            print('d_stellar_labels tolerance reached')
+        if not delta_rv.abs().max() > self.tolerances['d_rv']:
+            print('d_rv tolerance reached')
+        if not delta_log_vmacro.abs().max() > self.tolerances[
+            'd_log_vmacro'] and self.log_vmacro is not None and verbose:
+            print('d_log_vmacro tolerance reached')
+        if not delta_inst_res.abs().max() > self.tolerances['d_inst_res'] and self.inst_res is not None:
+            print('d_inst_res tolerance reached')
+        if not delta_log_vsini.abs().max() > self.tolerances['d_log_vsini'] and self.log_vsini is not None:
+            print('d_log_vsini tolerance reached')
+        if not delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont']:
+            print('d_cont tolerance reached')
+        if not delta_loss.abs() > self.tolerances['d_loss']:
+            print('d_loss tolerance reached')
+        if not self.loss > self.tolerances['loss']:
+            print('loss tolerance reached')
+
+
+class PayneOptimizerMulti:
+    def __init__(
+            self,
+            emulator,
+            loss_fn,
+            learning_rates,
+            learning_rate_decay,
+            learning_rate_decay_ts,
+            tolerances,
+    ):
+        self.emulator = emulator
+        self.n_obs = len(self.emulator.emulators)
+        self.loss_fn = loss_fn
+        self.learning_rates = learning_rates
+        self.learning_rate_decay = learning_rate_decay
+        self.learning_rate_decay_ts = learning_rate_decay_ts
+        self.tolerances = tolerances
+
+        self.n_stellar_labels = self.emulator.n_stellar_labels
+
+        self.cont_deg = self.emulator.cont_deg
+        self.n_cont_coeffs = self.cont_deg + 1
+        self.cont_wave_norm_range = self.emulator.cont_wave_norm_range
+
+    def init_values(self, plot_prefits=False):
+        if self.init_params['inst_res'] == 'prefit':
+            if self.params['inst_res'] == 'fit':
+                self.inst_res = self.prefit_inst_res(plot=plot_prefits).requires_grad_()
+            else:
+                self.inst_res = self.prefit_inst_res(plot=plot_prefits)
+        else:
+            if self.params['inst_res'] == 'fit':
+                self.inst_res = self.init_params['inst_res'].requires_grad_() if self.init_params[
+                                                                                     'inst_res'] is not None else None
+            else:
+                self.inst_res = self.init_params['inst_res'] if self.init_params['inst_res'] is not None else None
+        if self.init_params['rv'] == 'prefit':
+            if self.params['rv'] == 'fit':
+                self.rv = self.prefit_rv(plot=plot_prefits).requires_grad_()
+            else:
+                self.rv = self.prefit_rv(plot=plot_prefits)
+        else:
+            if self.params['rv'] == 'fit':
+                self.rv = self.init_params['rv'].requires_grad_()
+            else:
+                self.rv = self.init_params['rv']
+        if self.init_params['cont_coeffs'] == 'prefit':
+            if self.params['cont_coeffs'] == 'fit':
+                self.cont_coeffs = [[coeffs.requires_grad_() for coeffs in coeffs_obs] for coeffs_obs in self.prefit_cont(plot=plot_prefits)]
+                self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
+            else:
+                self.cont_coeffs = [[coeffs for coeffs in coeffs_obs] for coeffs_obs in self.prefit_cont(plot=plot_prefits)]
+                self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
+        else:
+            if self.params['cont_coeffs'] == 'fit':
+                self.cont_coeffs = [[self.c_flat[i].requires_grad_() for i in range(self.n_cont_coeffs)] for i in range(self.n_obs)]
+                self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
+            else:
+                self.cont_coeffs = [[self.c_flat[i] for i in range(self.n_cont_coeffs)] for i in range(self.n_obs)]
+                self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
+        if self.init_params['stellar_labels'] == 'prefit':
+            if self.params['stellar_labels'] == 'fit':
+                self.stellar_labels = self.prefit_stellar_labels(plot=plot_prefits).requires_grad_()
+            else:
+                self.stellar_labels = self.prefit_stellar_labels(plot=plot_prefits)
+        else:
+            if self.params['stellar_labels'] == 'fit':
+                self.stellar_labels = self.init_params['stellar_labels'].requires_grad_()
+            else:
+                self.stellar_labels = self.init_params['stellar_labels']
+        if self.init_params['log_vmacro'] == 'prefit':
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits).requires_grad_()
+            else:
+                self.log_vmacro = self.prefit_vmacro(plot=plot_prefits)
+        else:
+            if self.params['log_vmacro'] == 'fit':
+                self.log_vmacro = self.init_params['log_vmacro'].requires_grad_() if self.init_params[
+                                                                                         'log_vmacro'] is not None else None
+            else:
+                self.vmacro = self.init_params['log_vmacro'] if self.init_params['log_vmacro'] is not None else None
+        if self.init_params['log_vsini'] == 'prefit':
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits).requires_grad_()
+            else:
+                self.log_vsini = self.prefit_vsini(plot=plot_prefits)
+        else:
+            if self.params['log_vsini'] == 'fit':
+                self.log_vsini = self.init_params['log_vsini'].requires_grad_() if self.init_params[
+                                                                                       'log_vsini'] is not None else None
+            else:
+                self.log_vsini = self.init_params['log_vsini'] if self.init_params['log_vsini'] is not None else None
+
+    def prefit_rv(
+            self,
+            log_vmacro0=None,
+            log_vsini0=None,
+            inst_res0=None,
+            rv_range=(-3, 3),
+            n_rv=301,
+            plot=False,
+    ):
+        self.stellar_labels = torch.zeros(n_rv, self.n_stellar_labels)
+        self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
+        # self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        rv0 = torch.linspace(rv_range[0], rv_range[1], n_rv)
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=rv0,
+            cont_coeffs=[self.c_flat for i in range(self.n_obs)],
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        if self.loss_fn == 'neg_log_posterior':
+            loss0 = self.neg_log_posterior(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        else:
+            loss0 = self.loss_fn(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        if plot:
+            plt.plot(rv0, loss0.detach().numpy(), c='k')
+            plt.axvline(rv0[loss0.argmin()].unsqueeze(0).detach().numpy(), c='r')
+            plt.show()
+        return rv0[loss0.argmin()].unsqueeze(0)
+
+    def prefit_cont(
+            self,
+            log_vmacro0=None,
+            log_vsini0=None,
+            inst_res0=None,
+            plot=False,
+    ):
+        self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
+        self.log_vmacro = ensure_tensor(log_vmacro0) if log_vmacro0 is not None else None
+        self.log_vsini = ensure_tensor(log_vsini0) if log_vsini0 is not None else None
+        # self.inst_res = ensure_tensor(inst_res0) if inst_res0 is not None else None
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=self.rv,
+            cont_coeffs=[self.c_flat for i in range(self.n_obs)],
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        c0 = torch.zeros(self.n_obs, self.n_cont_coeffs, self.n_obs_ord)
+        footprint = np.concatenate(
+            [np.ones(self.prefit_cont_window), np.zeros(self.prefit_cont_window), np.ones(self.prefit_cont_window)])
+        tot_errs = torch.sqrt((mod_errs[0] * self.obs_blaz) ** 2 + self.obs_errs ** 2)
+        scaling = self.obs_flux / (mod_flux[0] * self.obs_blaz)
+        scaling[~self.obs_mask] = 1.0
+        for o in range(self.n_obs):
+            for i in range(self.n_obs_ord):
+                filtered_scaling = percentile_filter(scaling[o,i].detach().numpy(), percentile=25, footprint=footprint)
+                filtered_scaling = percentile_filter(filtered_scaling, percentile=75, footprint=footprint)
+                p = Polynomial.fit(
+                    x=self.obs_norm_wave[o,i].detach().numpy(),
+                    y=filtered_scaling,
+                    deg=self.cont_deg,
+                    w=(tot_errs[o,i] ** -1).detach().numpy(),
+                    window=self.cont_wave_norm_range
+                )
+                if plot:
+                    plt.figure(figsize=(20, 1))
+                    plt.scatter(
+                        self.obs_wave[o,i][self.obs_mask[o,i]].detach().numpy(),
+                        self.obs_flux[o,i][self.obs_mask[o,i]].detach().numpy(),
+                        c='k', marker='.', alpha=0.8
+                    )
+                    plt.plot(
+                        self.obs_wave[o,i].detach().numpy(),
+                        (mod_flux[0, o,i] * self.obs_blaz[o,i] * p(self.obs_norm_wave[o,i])).detach().numpy(),
+                        c='r', alpha=0.8
+                    )
+                    plt.ylim(0, 1.5 * np.quantile(self.obs_flux[o,i][self.obs_mask[o,i]].detach().numpy(), 0.95))
+                    plt.show()
+                    plt.close('all')
+                c0[o, :, i] = ensure_tensor(p.coef)
+                if torch.isnan(c0).any():
+                    raise RuntimeError("NaN value returned for c0")
+        return [[c0[o,i] for i in range(self.n_cont_coeffs)] for o in range(self.n_obs)]
+
+    def prefit_vmacro(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_vsini(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_inst_res(self, plot=False):
+        raise NotImplementedError
+
+    def prefit_stellar_labels(self):
+        n_spec = 100
+        stellar_labels0 = torch.zeros(100, self.n_stellar_labels)
+        if type(self.priors['Fe']) == GaussianLogPrior:
+            fe0 = torch.zeros(n_spec).normal_(
+                self.priors['Fe'].mu,
+                self.priors['Fe'].sigma,
+            )
+        else:
+            fe0 = torch.zeros(n_spec).uniform_(
+                self.priors['Fe'].lower_bound,
+                self.priors['Fe'].upper_bound,
+            )
+        if self.use_gaia_phot:
+            fe_phot = torch.vstack([
+                fe0,
+                self.gaia_bprp,
+                self.gaia_g,
+            ]).T
+            logg, logTeff = self._gaia_fn(fe_phot.detach().numpy()).flatten()
+        for i, label in enumerate(self.emulator.labels):
+            if (label == 'Teff') and self.use_gaia_phot:
+                x0 = self.emulator.scale_stellar_labels(
+                    10 ** logTeff * torch.ones(self.n_stellar_labels)
+                )[i]
+            elif (label == 'logg') and self.use_gaia_phot:
+                x0 = self.emulator.scale_stellar_labels(
+                    logg * torch.ones(self.n_stellar_labels)
+                )[i]
+            elif label in self.priors:
+                if type(self.priors[label]) == GaussianLogPrior:
+                    x0 = torch.zeros(n_spec).normal_(
+                        self.priors[label].mu,
+                        self.priors[label].sigma,
+                    )
+                else:
+                    x0 = torch.zeros(n_spec).uniform_(
+                        self.priors[label].lower_bound,
+                        self.priors[label].upper_bound,
+                    )
+                if label == 'Fe':
+                    x0 = fe0
+                elif label not in ['Teff', 'logg', 'v_micro', 'Fe']:
+                    x0 += fe0
+                x0 = self.emulator.scale_stellar_labels(
+                    x0 * torch.ones(self.n_stellar_labels)
+                )[i]
+            else:
+                x0 = torch.zeros(n_spec).uniform_(-0.55, 0.55)
+            with torch.no_grad():
+                stellar_labels0[:, i] = ensure_tensor(x0)
+        if self.use_holtzman2015:
+            with torch.no_grad():
+                stellar_labels0[:, 2] = self.emulator.scale_stellar_labels(
+                    (2.478 - 0.325 * self.emulator.unscale_stellar_labels(stellar_labels0)[:, 1]) * torch.ones(
+                        self.emulator.n_stellar_labels)
+                )[2]
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=stellar_labels0,
+            rv=self.rv,
+            cont_coeffs=self.cont_coeffs,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
+            inst_res=self.inst_res,
+        )
+        if self.loss_fn == 'neg_log_posterior':
+            loss0 = self.neg_log_posterior(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        else:
+            loss0 = self.loss_fn(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+            )
+        return stellar_labels0[loss0.argmin()].unsqueeze(0)
+
+    def init_optimizer_scheduler(self):
+        optim_params = []
+        lr_lambdas = []
+        if self.params['stellar_labels'] == 'fit':
+            optim_params.append({'params': [self.stellar_labels], 'lr': self.learning_rates['stellar_labels']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['stellar_labels'] ** (
+                    epoch // self.learning_rate_decay_ts['stellar_labels']))
+        if self.params['rv'] == 'fit':
+            optim_params.append({'params': [self.rv], 'lr': self.learning_rates['rv']})
+            lr_lambdas.append(
+                lambda epoch: self.learning_rate_decay['rv'] ** (epoch // self.learning_rate_decay_ts['rv']))
+        if self.params['log_vmacro'] == 'fit':
+            optim_params.append({'params': [self.log_vmacro], 'lr': self.learning_rates['log_vmacro']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vmacro'] ** (
+                    epoch // self.learning_rate_decay_ts['log_vmacro']))
+        if self.params['log_vsini'] == 'fit':
+            optim_params.append({'params': [self.log_vsini], 'lr': self.learning_rates['log_vsini']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['log_vsini'] ** (
+                    epoch // self.learning_rate_decay_ts['log_vsini']))
+        if self.params['inst_res'] == 'fit':
+            optim_params.append({'params': [self.inst_res], 'lr': self.learning_rates['inst_res']})
+            lr_lambdas.append(lambda epoch: self.learning_rate_decay['inst_res'] ** (
+                    epoch // self.learning_rate_decay_ts['inst_res']))
+        if self.params['cont_coeffs'] == 'fit':
+            optim_params += [
+                {'params': [self.cont_coeffs[o][i]],
+                 'lr': torch.abs(self.cont_coeffs[o][i].mean()) * self.learning_rates['cont_coeffs']}
+                for i in range(self.n_cont_coeffs) for o in range(self.n_obs)
+            ]
+            lr_lambdas += [
+                lambda epoch: self.learning_rate_decay['cont_coeffs'] ** (
+                        epoch // self.learning_rate_decay_ts['cont_coeffs'])
+                for i in range(self.n_cont_coeffs) for o in range(self.n_obs)
+            ]
+        optimizer = torch.optim.Adam(optim_params)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer=optimizer,
+            lr_lambda=lr_lambdas
+        )
+        return optimizer, scheduler
+
+    def atm_from_gaia_phot(self, scaled_feh):
+        n_spec = scaled_feh.shape[0]
+        teff_min = self.emulator.stellar_labels_min[0]
+        teff_max = self.emulator.stellar_labels_max[0]
+        logg_min = self.emulator.stellar_labels_min[1]
+        logg_max = self.emulator.stellar_labels_max[1]
+        fe_min = self.emulator.stellar_labels_min[self.fe_idx]
+        fe_max = self.emulator.stellar_labels_max[self.fe_idx]
+        unscaled_fe = (scaled_feh + 0.5) * (fe_max - fe_min) + fe_min
+        vec = torch.zeros(
+            (self._gaia_n_cmd + self._gaia_n_pow, n_spec),
+            dtype=torch.float64
+        )
+        feh_phot = torch.vstack(
+            [unscaled_fe, self.gaia_bprp.repeat(n_spec), self.gaia_g.repeat(n_spec)]
+        ).T * self._gaia_eps
+        feh_phot_hat = (feh_phot - self._gaia_shift) / self._gaia_scale
+        d = feh_phot.unsqueeze(0) - self._gaia_cmd.unsqueeze(1)
+        r = torch.linalg.norm(d, axis=2)
+        vec[:self._gaia_n_cmd, :] = thin_plate_spline(r)
+        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._gaia_pow.unsqueeze(1)
+        vec[self._gaia_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
+        logg_logteff = torch.tensordot(self._gaia_coeffs, vec, dims=[[0], [0]])
+        scaled_logg = (logg_logteff[0] - logg_min) / (logg_max - logg_min) - 0.5
+        scaled_teff = (10 ** logg_logteff[1] - teff_min) / (teff_max - teff_min) - 0.5
+        scaled_logg_teff = torch.vstack([scaled_teff, scaled_logg]).T
+        return scaled_logg_teff
+
+    def holtzman2015(self, scaled_logg):
+        logg_min = self.emulator.stellar_labels_min[1]
+        logg_max = self.emulator.stellar_labels_max[1]
+        vmicro_min = self.emulator.stellar_labels_min[2]
+        vmicro_max = self.emulator.stellar_labels_max[2]
+        unscaled_logg = (scaled_logg + 0.5) * (logg_max - logg_min) + logg_min
+        unscaled_vmicro = 2.478 - 0.325 * unscaled_logg
+        scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
+        return scaled_vmicro
+
+    def neg_log_posterior(self, pred, target, pred_errs, target_errs):
+        log_likelihood = gaussian_log_likelihood_multi(pred, target, pred_errs, target_errs)
+        log_priors = torch.zeros_like(log_likelihood)
+        unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
+        fe_idx = self.emulator.labels.index('Fe')
+        for i, label in enumerate(self.emulator.labels):
+            if label in ['Teff', 'logg', 'v_micro', 'Fe']:
+                log_priors += self.priors['stellar_labels'][i](unscaled_stellar_labels[:, i])
+            else:
+                log_priors += self.priors['stellar_labels'][i](
+                    unscaled_stellar_labels[:, i] - unscaled_stellar_labels[:, fe_idx]
+                )
+        if self.log_vmacro is not None:
+            log_priors += self.priors['log_vmacro'](self.log_vmacro[:, 0])
+        if self.log_vsini is not None:
+            log_priors += self.priors['log_vsini'](self.log_vsini[:, 0])
+        if self.inst_res is not None:
+            log_priors += self.priors['inst_res'](self.inst_res[:, 0])
+        return -1 * (log_likelihood + log_priors)
+
+    def forward(self):
+        mod_flux, mod_errs = self.emulator(
+            stellar_labels=self.stellar_labels,
+            rv=self.rv,
+            vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
+            cont_coeffs=[torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)],
+            inst_res=self.inst_res,
+            vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
+        )
+        return mod_flux * self.obs_blaz, mod_errs * self.obs_blaz
+
+    def fit(
+            self,
+            obs_flux,
+            obs_errs,
+            obs_wave,
+            obs_blaz=None,
+            obs_mask=None,
+            params=dict(
+                stellar_labels='fit',
+                rv='fit',
+                vmacro='const',
+                vsini='const',
+                inst_res='const',
+                cont_coeffs='fit',
+            ),
+            init_params=dict(
+                stellar_labels=torch.zeros(1, 12),
+                rv='prefit',
+                vmacro=None,
+                vsini=None,
+                inst_res=None,
+                cont_coeffs='prefit'
+            ),
+            priors=None,
+            min_epochs=1000,
+            max_epochs=10000,
+            prefit_cont_window=55,
+            use_holtzman2015=False,
+            use_gaia_phot=False,
+            gaia_g=None,
+            gaia_bprp=None,
+            gaia_cmd_interpolator=None,
+            verbose=False,
+            plot_prefits=False,
+            plot_fit_every=None,
+    ):
+        self.obs_flux = ensure_tensor(obs_flux)
+        self.obs_errs = ensure_tensor(obs_errs)
+        self.obs_snr = self.obs_flux / self.obs_errs
+        self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
+        self.obs_blaz = ensure_tensor(obs_blaz) if obs_blaz is not None else torch.ones_like(self.obs_flux)
+        self.obs_mask = ensure_tensor(obs_mask, precision=bool) \
+            if obs_mask is not None \
+            else torch.ones_like(self.obs_flux, dtype=bool)
+        #if torch.all(self.obs_wave != self.emulator.obs_wave):
+        #    raise RuntimeError("obs_wave of Emulator and Optimizer differ!")
+        self.obs_norm_wave = torch.stack([emulator.obs_norm_wave for emulator in self.emulator.emulators])
+        #self.obs_wave_ = self.emulator.obs_wave_
+        self.n_obs_ord = self.emulator.n_obs_ord
+        self.n_obs_pix_per_ord = self.emulator.n_obs_pix
+
+        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        self.c_flat[0] = 1.0
+        self.prefit_cont_window = prefit_cont_window
+
+        self.params = params
+        self.init_params = init_params
+
+        self.priors = priors
+        self.fe_idx = self.emulator.labels.index('Fe')
+        self.fe_scaled_idx = [
+            i for i, label in enumerate(self.emulator.labels)
+            if label not in ['Teff', 'logg', 'v_micro', 'Fe']
+        ]
+        self.fe_scaler = torch.zeros(2, self.emulator.n_stellar_labels)
+        self.fe_scaler[:, self.fe_scaled_idx] = 1
+        self.stellar_label_bounds = torch.Tensor([
+            [prior.lower_bound, prior.upper_bound]
+            if type(prior) == UniformLogPrior
+            else [-np.inf, np.inf]
+            for prior in self.priors['stellar_labels']
+        ]).T
+        self.use_holtzman2015 = use_holtzman2015
+        self.use_gaia_phot = use_gaia_phot
+        if self.use_gaia_phot:
+            if gaia_g is None or gaia_bprp is None:
+                raise ValueError("Gaia photometry is not provided")
+            if gaia_cmd_interpolator is None:
+                raise ValueError("Gaia CMD interpolator is not provided")
+            self.gaia_g = ensure_tensor(gaia_g)
+            self.gaia_bprp = ensure_tensor(gaia_bprp)
+            self._gaia_fn = gaia_cmd_interpolator
+            self._gaia_cmd = ensure_tensor(self._gaia_fn.y * self._gaia_fn.epsilon, precision=torch.float64)
+            self._gaia_eps = ensure_tensor(self._gaia_fn.epsilon, precision=torch.float64)
+            self._gaia_pow = ensure_tensor(self._gaia_fn.powers, precision=torch.float64)
+            self._gaia_coeffs = ensure_tensor(self._gaia_fn._coeffs, precision=torch.float64)
+            self._gaia_shift = ensure_tensor(self._gaia_fn._shift, precision=torch.float64)
+            self._gaia_scale = ensure_tensor(self._gaia_fn._scale, precision=torch.float64)
+            self._gaia_n_cmd = self._gaia_cmd.shape[0]
+            self._gaia_n_pow = self._gaia_pow.shape[0]
+            self._gaia_n_coeffs = self._gaia_coeffs.shape[1]
+
+        # Initialize Starting Values
+        self.init_values(plot_prefits=plot_prefits)
+
+        # Initialize Optimizer & Learning Rate Scheduler
+        optimizer, scheduler = self.init_optimizer_scheduler()
+
+        # Initialize Convergence Criteria
+        epoch = 0
+        self.loss = ensure_tensor(np.inf)
+        delta_loss = ensure_tensor(np.inf)
+        delta_stellar_labels = ensure_tensor(np.inf)
+        delta_log_vmacro = ensure_tensor(np.inf)
+        delta_rv = ensure_tensor(np.inf)
+        delta_inst_res = ensure_tensor(np.inf)
+        delta_log_vsini = ensure_tensor(np.inf)
+        delta_frac_weighted_cont = ensure_tensor(np.inf)
+        last_cont = torch.zeros_like(self.obs_blaz)
+
+        # Initialize History
+        self.history = dict(
+            stellar_labels=[],
+            log_vmacro=[],
+            rv=[],
+            inst_res=[],
+            log_vsini=[],
+            cont_coeffs=[],
+            loss=[]
+        )
+
+        while (
+                (epoch < min_epochs)
+                or (
+                        (epoch < max_epochs)
+                        and (
+                                (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
+                                or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
+                                or (delta_log_vmacro.abs() > self.tolerances['d_log_vmacro'])
+                                or (delta_rv.abs() > self.tolerances['d_rv'])
+                                or (delta_inst_res.abs() > self.tolerances['d_inst_res'])
+                                or (delta_log_vsini.abs() > self.tolerances['d_log_vsini'])
+                        )
+                        and (
+                                delta_loss.abs() > self.tolerances['d_loss']
+                        )
+                        and (
+                                self.loss > self.tolerances['loss']
+                        )
+                )
+        ):
+            # Forward Pass
+            with torch.autograd.detect_anomaly():
+                mod_flux, mod_errs = self.forward()
+                if self.loss_fn == 'neg_log_posterior':
+                    loss_epoch = self.neg_log_posterior(
+                        pred=mod_flux,
+                        target=self.obs_flux,
+                        pred_errs=mod_errs,
+                        target_errs=self.obs_errs,
+                    )
+                else:
+                    loss_epoch = self.loss_fn(
+                        pred=mod_flux,
+                        target=self.obs_flux,
+                        pred_errs=mod_errs,
+                        target_errs=self.obs_errs,
+                    )
+                if torch.isnan(loss_epoch):
+                    raise RuntimeError('NaN value returned for loss')
+
+            # Log Results / History
+            delta_loss = self.loss - loss_epoch
+            self.loss = loss_epoch.item()
+            self.history['stellar_labels'].append(torch.clone(self.stellar_labels).detach())
+            self.history['rv'].append(torch.clone(self.rv))
+            if self.log_vmacro is None:
+                self.history['log_vmacro'].append(None)
+            else:
+                self.history['log_vmacro'].append(torch.clone(self.log_vmacro))
+            if self.inst_res is None:
+                self.history['inst_res'].append(None)
+            else:
+                self.history['inst_res'].append(torch.clone(self.inst_res))
+            if self.log_vsini is None:
+                self.history['log_vsini'].append(None)
+            else:
+                self.history['log_vsini'].append(torch.clone(self.log_vsini))
+            #self.history['cont_coeffs'].append(
+            #    torch.clone(
+            #        torch.stack([torch.stack(self.cont_coeffs[o]).detach() for o in range(self.n_obs)])
+            #    )
+            #)
+            self.history['cont_coeffs'].append(torch.clone(self.cont_coeffs_tensor))
+            self.history['loss'].append(self.loss)
+
+            # Backward Pass
+            with torch.autograd.detect_anomaly():
+                optimizer.zero_grad()
+                loss_epoch.backward()
+                optimizer.step()
+                scheduler.step()
+            if torch.isnan(self.stellar_labels).any():
+                raise RuntimeError('NaN value(s) suggested for stellar_labels')
+
+            # Set Bounds
+            with torch.no_grad():
+                # Enforce Stellar Label Priors
+                # self.stellar_labels.clamp_(min=-0.55, max=0.55)
+                unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
+                scaled_stellar_bounds = self.emulator.scale_stellar_labels(
+                    self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
+                )
+                for i in range(self.n_stellar_labels):
+                    self.stellar_labels[:, i].clamp_(
+                        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
+                        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
+                    )
+                # self.stellar_labels.clamp_(  # Allowed in pytorch 1.9.0 but not in 1.8.0
+                #    min=scaled_stellar_bounds[0],
+                #    max=scaled_stellar_bounds[1],
+                # )
+                if self.use_gaia_phot:
+                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
+                if self.use_holtzman2015:
+                    self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
+                if self.log_vmacro is not None:
+                    self.log_vmacro.clamp_(min=-1.0, max=1.3)
+                if self.log_vsini is not None:
+                    self.log_vsini.clamp_(min=-1.0, max=2.5)
+                if self.inst_res is not None:
+                    self.inst_res.clamp_(
+                        min=100,
+                        max=self.emulator.model_res if self.emulator.model_res is not None else np.inf
+                    )
+            self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
+
+            # Check Convergence
+            delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
+            delta_log_vmacro = ensure_tensor(0) if self.log_vmacro is None else self.log_vmacro - \
+                                                                                self.history['log_vmacro'][-1]
+            delta_rv = self.rv - self.history['rv'][-1]
+            delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
+            delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - \
+                                                                              self.history['log_vsini'][-1]
+            #delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
+            delta_cont_coeffs = self.cont_coeffs_tensor - self.history['cont_coeffs'][-1]
+            if epoch % 20 == 0:
+                cont = self.emulator.calc_cont(
+                    [torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)]
+                )
+                delta_cont = cont - last_cont
+                delta_frac_weighted_cont = delta_cont / cont * self.obs_snr
+                last_cont = cont
+                if verbose:
+                    print(f"Epoch: {epoch}, Current Loss: {self.loss:.6f}")
+            if (plot_fit_every is not None) and (epoch % plot_fit_every == 0):
+                tot_errs = torch.sqrt(mod_errs ** 2 + self.obs_errs ** 2)
+                mse = ((mod_flux[0] - self.obs_flux) / tot_errs) ** 2
+                mask = torch.isfinite(tot_errs)
+                for o in range(self.n_obs):
+                    for i in range(self.n_obs_ord):
+                        fig = plt.figure(figsize=(20, 2))
+                        gs = GridSpec(3, 1)
+                        gs.update(hspace=0.0)
+                        ax1 = plt.subplot(gs[:2, 0])
+                        ax2 = plt.subplot(gs[2, 0], sharex=ax1)
+                        ax1.scatter(self.obs_wave[o, i][mask[0, o, i]].detach().numpy(),
+                                    self.obs_flux[o, i][mask[0, o, i]].detach().numpy(), c='k', marker='.', alpha=0.8, )
+                        ax1.plot(self.obs_wave[o, i].detach().numpy(), mod_flux[0, o, i].detach().numpy(), c='r', alpha=0.8)
+                        ax2.scatter(self.obs_wave[o, i][mask[0, o, i]].detach().numpy(), mse[0, o, i][mask[0, o, i]].detach().numpy(),
+                                    c='k', marker='.', alpha=0.8)
+                        ax1.tick_params('x', labelsize=0)
+                        plt.show()
+                        plt.close('all')
+            epoch += 1
+
+        # Recover Best Epoch
+        self.stellar_labels = self.history['stellar_labels'][np.argmin(self.history['loss'])]
+        self.log_vmacro = self.history['log_vmacro'][np.argmin(self.history['loss'])]
+        self.rv = self.history['rv'][np.argmin(self.history['loss'])]
+        self.inst_res = self.history['inst_res'][np.argmin(self.history['loss'])]
+        self.log_vsini = self.history['log_vsini'][np.argmin(self.history['loss'])]
+        self.cont_coeffs = [
+            [
+                self.history['cont_coeffs'][np.argmin(self.history['loss'])][o,i]
+                for i in range(self.n_cont_coeffs)
+            ]
+            for o in range(self.n_obs)
+        ]
+        self.cont_coeffs_tensor = torch.stack([torch.stack(self.cont_coeffs[o]) for o in range(self.n_obs)])
         self.loss = np.min(self.history['loss'])
         self.best_model, self.best_model_errs = self.forward()
 
