@@ -2812,24 +2812,24 @@ class PayneOptimizerMulti:
                 )
         ):
             # Forward Pass
-            with torch.autograd.detect_anomaly():
-                mod_flux, mod_errs = self.forward()
-                if self.loss_fn == 'neg_log_posterior':
-                    loss_epoch = self.neg_log_posterior(
-                        pred=mod_flux,
-                        target=self.obs_flux,
-                        pred_errs=mod_errs,
-                        target_errs=self.obs_errs,
-                    )
-                else:
-                    loss_epoch = self.loss_fn(
-                        pred=mod_flux,
-                        target=self.obs_flux,
-                        pred_errs=mod_errs,
-                        target_errs=self.obs_errs,
-                    )
-                if torch.isnan(loss_epoch):
-                    raise RuntimeError('NaN value returned for loss')
+            #with torch.autograd.detect_anomaly():
+            mod_flux, mod_errs = self.forward()
+            if self.loss_fn == 'neg_log_posterior':
+                loss_epoch = self.neg_log_posterior(
+                    pred=mod_flux,
+                    target=self.obs_flux,
+                    pred_errs=mod_errs,
+                    target_errs=self.obs_errs,
+                )
+            else:
+                loss_epoch = self.loss_fn(
+                    pred=mod_flux,
+                    target=self.obs_flux,
+                    pred_errs=mod_errs,
+                    target_errs=self.obs_errs,
+                )
+            if torch.isnan(loss_epoch):
+                raise RuntimeError('NaN value returned for loss')
 
             # Log Results / History
             delta_loss = self.loss - loss_epoch
@@ -2848,20 +2848,15 @@ class PayneOptimizerMulti:
                 self.history['log_vsini'].append(None)
             else:
                 self.history['log_vsini'].append(torch.clone(self.log_vsini))
-            #self.history['cont_coeffs'].append(
-            #    torch.clone(
-            #        torch.stack([torch.stack(self.cont_coeffs[o]).detach() for o in range(self.n_obs)])
-            #    )
-            #)
             self.history['cont_coeffs'].append(torch.clone(self.cont_coeffs_tensor))
             self.history['loss'].append(self.loss)
 
             # Backward Pass
-            with torch.autograd.detect_anomaly():
-                optimizer.zero_grad()
-                loss_epoch.backward()
-                optimizer.step()
-                scheduler.step()
+            #with torch.autograd.detect_anomaly():
+            optimizer.zero_grad()
+            loss_epoch.backward()
+            optimizer.step()
+            scheduler.step()
             if torch.isnan(self.stellar_labels).any():
                 raise RuntimeError('NaN value(s) suggested for stellar_labels')
 
@@ -2905,7 +2900,6 @@ class PayneOptimizerMulti:
             delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
             delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - \
                                                                               self.history['log_vsini'][-1]
-            #delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
             delta_cont_coeffs = self.cont_coeffs_tensor - self.history['cont_coeffs'][-1]
             if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
