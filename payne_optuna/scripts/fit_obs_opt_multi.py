@@ -54,41 +54,41 @@ def main(args):
     obs_dict = {}
     with open(args.fitting_configs) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
+    # I/O Prep
+    program = configs['observation']['program']
+    star = configs['observation']['star']
+    resolution = configs['observation']['resolution']
+    default_res = configs['observation']['default_res']
+    model_res = configs['observation']['model_res']
+    bin_errors = configs['observation']['bin_errors']
+    snr_rdx = configs['observation']['snr_rdx']
+    snr_tag = f'_snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
+    model_config_dir = Path(configs['paths']['model_config_dir'])
+    data_dir = Path(configs['paths']['data_dir'])
+    program_dir = data_dir.joinpath(f'{program}')
+    mask_dir = program_dir.joinpath('masks')
+    fig_dir = program_dir.joinpath(f'figures/{program}_{star}')
+    fits_dir = program_dir.joinpath(f'fits/{program}_{star}')
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    fits_dir.mkdir(parents=True, exist_ok=True)
+    model_config_files = sorted(list(model_config_dir.glob('*')))
+    line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}")
+    nlte_errs_files = sorted(list(mask_dir.joinpath(configs['masks']['nlte']).glob('*'))) \
+        if configs['masks']['nlte'] is not False else False
     for exp_fitting_configs in configs['paths']['exp_configs']:
         with open(exp_fitting_configs) as file:
             exp_configs = yaml.load(file, Loader=yaml.FullLoader)
         # Parse Observation
-        program = configs['observation']['program']
         date = exp_configs['observation']['date']
-        star = configs['observation']['star']
         frame = exp_configs['observation']['frame']
         orders = exp_configs['observation']['orders']
-        resolution = configs['observation']['resolution']
-        default_res = configs['observation']['default_res']
-        model_res = configs['observation']['model_res']
-        bin_errors = configs['observation']['bin_errors']
-        snr_rdx = configs['observation']['snr_rdx']
-        snr_tag = f'_snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
         obs_name = f'{star}_{frame}_{date}'
-        # I/O Prep
-        model_config_dir = Path(configs['paths']['model_config_dir'])
-        data_dir = Path(configs['paths']['data_dir'])
-        program_dir = data_dir.joinpath(f'{program}')
         flats_dir = program_dir.joinpath(f'flats/{date}')
         obs_dir = program_dir.joinpath(f'obs/{star}_{date}')
-        mask_dir = program_dir.joinpath('masks')
-        fig_dir = program_dir.joinpath(f'figures/{star}_{date}')
-        fig_dir.mkdir(parents=True, exist_ok=True)
-        fits_dir = program_dir.joinpath(f'fits/{star}_{date}')
-        fits_dir.mkdir(parents=True, exist_ok=True)
-        model_config_files = sorted(list(model_config_dir.glob('*')))
         flat_files = sorted(list(flats_dir.glob('*')))
         obs_spec_file = obs_dir.joinpath(f'spec1d_{star}_{frame}.fits')
         telluric_file = mask_dir.joinpath(f"{exp_configs['masks']['telluric']}")
         detector_mask_file = mask_dir.joinpath(f"{exp_configs['masks']['detector']}")
-        line_mask_file = mask_dir.joinpath(f"{configs['masks']['line']}")
-        nlte_errs_files = sorted(list(mask_dir.joinpath(configs['masks']['nlte']).glob('*'))) \
-            if configs['masks']['nlte'] is not False else False
 
         ######################
         ######## DATA ########
