@@ -56,10 +56,6 @@ def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
 
 def gaussian_log_likelihood_multi(pred, target, pred_errs, target_errs):
     tot_vars = pred_errs ** 2 + target_errs ** 2
-    mask = torch.isfinite(tot_vars)
-    tot_vars[~mask] = 1e10
-    pred[~mask] = 0
-    target[~torch.all(mask, axis=0)] = 0
     loglike = -0.5 * (
         torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
     )

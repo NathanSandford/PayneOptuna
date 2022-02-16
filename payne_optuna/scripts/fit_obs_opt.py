@@ -158,7 +158,8 @@ def main(args):
     post_conv_mask = obs['ovrlp_mask']
     all_masks = (pre_conv_mask & post_conv_mask)
     obs['tot_mask'] = all_masks
-    obs['errs'][~all_masks] = np.inf
+    obs['errs'][~all_masks] = 1e10
+    obs['spec'][~all_masks] = 0
 
     ########################
     ######## MODELS ########
@@ -303,7 +304,8 @@ def main(args):
                 verbose=False
             )
         mask_ds = (mask1_ds > 0.99) & (mask2_ds > 0.99)
-        errs_ds[~mask_ds] = np.inf
+        errs_ds[~mask_ds] = 1e10
+        spec_ds[~mask_ds] = 0
         obs['conv_wave'] = wave_ds
         obs['conv_spec'] = spec_ds
         obs['conv_errs'] = errs_ds

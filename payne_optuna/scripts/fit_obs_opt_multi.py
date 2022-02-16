@@ -163,7 +163,8 @@ def main(args):
         post_conv_mask = obs['ovrlp_mask']
         all_masks = (pre_conv_mask & post_conv_mask)
         obs['tot_mask'] = all_masks
-        obs['errs'][~all_masks] = np.inf
+        obs['errs'][~all_masks] = 1e10
+        obs['spec'][~all_masks] = 0
 
         ########################
         ######## MODELS ########
@@ -287,7 +288,8 @@ def main(args):
                     verbose=False
                 )
             mask_ds = (mask1_ds > 0.99) & (mask2_ds > 0.99)
-            errs_ds[~mask_ds] = np.inf
+            errs_ds[~mask_ds] = 1e10
+            spec_ds[~mask_ds] = 0
             obs['conv_wave'] = wave_ds
             obs['conv_spec'] = spec_ds
             obs['conv_errs'] = errs_ds
@@ -640,7 +642,7 @@ def main(args):
             'obs_errs': optimizer.obs_errs.detach(),
             'obs_blaz': torch.stack(
                 [optimizer.emulator.emulators[o].obs_blaz for o in range(optimizer.n_obs)]).detach(),
-            'obs_mask': obs['tot_mask'] if resolution == "default" else obs['conv_mask'],
+            'obs_mask': optimizer.obs_mask.detach(),
             'mod_flux': optimizer.best_model.detach(),
             'mod_errs': optimizer.best_model_errs.detach(),
             'loss': optimizer.loss,
