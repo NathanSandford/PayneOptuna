@@ -54,7 +54,7 @@ def main(args):
     obs_dict = {}
     with open(args.fitting_configs) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
-    for exp_fitting_configs in configs['exp_configs']:
+    for exp_fitting_configs in configs['paths']['exp_configs']:
         with open(exp_fitting_configs) as file:
             exp_configs = yaml.load(file, Loader=yaml.FullLoader)
         # Parse Observation
