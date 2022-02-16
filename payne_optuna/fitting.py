@@ -1492,7 +1492,7 @@ class PayneStitchedEmulator(PayneEmulator):
     def forward_model_spec(self, norm_flux, norm_errs, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
         raise NotImplementedError
 
-    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None, skip_cont=False,):
         n_spec = stellar_labels.shape[0]
         norm_flux = torch.zeros(n_spec, self.n_models, self.n_mod_pix_indiv)
         # Model Spectrum
@@ -1550,11 +1550,14 @@ class PayneStitchedEmulator(PayneEmulator):
             errs=conv_errs,
         )
         # Continuum Correction
-        cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
-        if self.include_model_errs:
-            return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
+        if skip_cont:
+            cont_flux = 1
         else:
-            return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
+            cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_) * self.obs_blaz
+        if self.include_model_errs:
+            return intp_flux * cont_flux, intp_errs * cont_flux
+        else:
+            return intp_flux * cont_flux, torch.zeros_like(intp_flux)
 
 
 class PayneEmulatorMulti(torch.nn.Module):
@@ -1589,14 +1592,14 @@ class PayneEmulatorMulti(torch.nn.Module):
             cont[i, :, :] = emulator.calc_cont(cont_coeffs[i], emulator.obs_wave_)
         return cont
 
-    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None, skip_cont=False):
         n_spec = stellar_labels.shape[0]
         self.out_shape = (n_spec, self.n_emulators, self.n_obs_ord, self.n_obs_pix)
         mod_flux = torch.zeros(self.out_shape)
         mod_errs = torch.zeros(self.out_shape)
         for i, emulator in enumerate(self.emulators):
             mod_flux[:, i, :, :], mod_errs[:, i, :, :] = emulator.forward(stellar_labels, rv, vmacro, cont_coeffs[i],
-                                                                          inst_res, vsini)
+                                                                          inst_res, vsini, skip_cont)
         return mod_flux, mod_errs
 
 
