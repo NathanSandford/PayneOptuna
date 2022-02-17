@@ -1757,6 +1757,7 @@ class PayneOptimizer:
         for i in range(self.n_obs_ord):
             filtered_scaling = percentile_filter(scaling[i].detach().numpy(), percentile=25, footprint=footprint)
             filtered_scaling = percentile_filter(filtered_scaling, percentile=75, footprint=footprint)
+            filtered_scaling[filtered_scaling <= 0.0] = 1.0
             p = Polynomial.fit(
                 x=self.obs_norm_wave[i].detach().numpy(),
                 y=filtered_scaling,
