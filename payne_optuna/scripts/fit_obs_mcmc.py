@@ -22,6 +22,9 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from corner import corner
 
+import os
+os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
 
 def parse_args(options=None):
     """
