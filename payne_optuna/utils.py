@@ -105,7 +105,7 @@ def noise_up_spec(D0, sigma_D0, factor, nspec=1, min_flux=-1e10, max_flux=1e10, 
     sigma = np.sqrt(factor**2 - 1) * sigma_D0
     D = np.random.normal(
         D0, sigma,
-        size=(nspec, D0.shape[0], D0.shape[1])
+        size=(nspec, D0.shape[0], D0.shape[1]) if nspec > 1 else None
     ).clip(min=min_flux, max=max_flux)
     sigma_D = np.sqrt(sigma_D0**2 + sigma**2)
     return D, sigma_D
