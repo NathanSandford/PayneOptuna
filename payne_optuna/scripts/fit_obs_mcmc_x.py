@@ -39,8 +39,7 @@ def parse_args(options=None):
     return args
 
 
-def main(args):
-    ##################################
+def main(args):    ##################################
     ######## PLOTTING CONFIGS ########
     ##################################
     mpl.rc('axes', grid=True, lw=2)
@@ -183,11 +182,11 @@ def main(args):
         # Decrease S/N
         print(f'Increase Noise by a Factor of {snr_rdx}')
         D, sigma_D = noise_up_spec(
-            obs['flux'],
-            obs['errs'],
-            snr_rdx,
+            D0=obs['flux'],
+            sigma_D0=obs['errs'],
+            factor=snr_rdx,
             nspec=n_fits,
-            seed=8645
+            seed=8645,
         )
         obs['flux'] = D
         obs['errs'] = sigma_D
@@ -232,6 +231,7 @@ def main(args):
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
         plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}{snr_tag}.mcmc.png'))
+        plt.show()
         plt.close('all')
 
     ####################################
