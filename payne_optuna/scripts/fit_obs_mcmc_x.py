@@ -39,7 +39,8 @@ def parse_args(options=None):
     return args
 
 
-def main(args):    ##################################
+def main(args):
+    ##################################
     ######## PLOTTING CONFIGS ########
     ##################################
     mpl.rc('axes', grid=True, lw=2)
@@ -286,6 +287,7 @@ def main(args):    ##################################
         GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution)),
         'rv': FlatLogPrior('rv'),
     }
+
     # Define Posterior Function
     def log_probability(theta, model, obs, priors, index, cmd_interp_fn=None):
         fe_idx = model.labels.index('Fe')
@@ -504,6 +506,7 @@ def main(args):    ##################################
                 payne,
                 obs,
                 priors,
+                n,
                 gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
             ),
             vectorize=True,
@@ -629,7 +632,7 @@ def main(args):    ##################################
         scaled_std = scaled_flat_samples.std(axis=0)
         unscaled_mean = unscaled_flat_samples.mean(axis=0)
         unscaled_std = unscaled_flat_samples.std(axis=0)
-        print(f"{obs_name} Sampling Summary:")
+        print(f"{obs_name} ({n}) Sampling Summary:")
         for i, label in enumerate(label_names):
             if label == "Fe":
                 print(
@@ -669,9 +672,9 @@ def main(args):    ##################################
                 ax.set_ylabel(label_names[i])
                 ax.yaxis.set_label_coords(-0.1, 0.5)
             axes[-1].set_xlabel("step number")
-            plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n}.png"))
             plt.close('all')
         if configs['output']['plot_corner']:
             fig = corner(flat_samples, labels=label_names)
-            fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+            fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n}.png"))
             plt.close('all')
