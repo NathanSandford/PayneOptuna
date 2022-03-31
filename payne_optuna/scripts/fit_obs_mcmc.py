@@ -69,9 +69,7 @@ def main(args):
     date = configs['observation']['date']
     star = configs['observation']['star']
     frame = configs['observation']['frame']
-    orders = configs['observation']['orders']
     resolution = configs['observation']['resolution']
-    default_res = configs['observation']['default_res']
     model_res = configs['observation']['model_res']
     bin_errors = configs['observation']['bin_errors']
     snr_rdx = configs['observation']['snr_rdx']
@@ -422,7 +420,7 @@ def main(args):
         print(f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): ")
         print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
         print(f'mean log(d_logP) = {np.log10(np.abs((log_prob_mean - log_prob_mean_last) / log_prob_mean)):0.2f}')
-        if np.abs(np.max(p_mean - p_mean_last)) < 0.001 \
+        if np.abs(np.max(p_mean - p_mean_last)) < 0.005 \
                 and (sampler.iteration >= 1000) \
                 and np.abs(log_prob_mean - log_prob_mean_last) / log_prob_mean <= 1e-5:
             p_mean_last = p_mean
