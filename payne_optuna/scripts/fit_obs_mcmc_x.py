@@ -425,7 +425,7 @@ def main(args):
         p_mean_last = p0.mean(0)
         log_prob_mean_last = -np.inf
         converged = False
-        for _ in sampler.sample(p0, iterations=10000, progress=True, store=True):
+        for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
             if (sampler.iteration % 100):
                 continue
             p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
@@ -433,12 +433,8 @@ def main(args):
             print(f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n} ({sampler.iteration}): ")
             print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
             print(f'mean log(d_logP) = {np.log10(np.abs((log_prob_mean - log_prob_mean_last) / log_prob_mean)):0.2f}')
-            if np.abs(np.max(p_mean - p_mean_last)) < 0.001 \
-                    and (sampler.iteration >= 1000) \
+            if (sampler.iteration >= 1000) \
                     and np.abs(log_prob_mean - log_prob_mean_last) / log_prob_mean <= 1e-5:
-                p_mean_last = p_mean
-                log_prob_mean_last = log_prob_mean
-                converged = True
                 break
             p_mean_last = p_mean
             log_prob_mean_last = log_prob_mean
