@@ -620,7 +620,7 @@ def main(args):
     scaled_std = scaled_flat_samples.std(axis=0)
     unscaled_mean = unscaled_flat_samples.mean(axis=0)
     unscaled_std = unscaled_flat_samples.std(axis=0)
-    print(f"{obs_name} Sampling Summary:")
+    print(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} Sampling Summary:")
     for i, label in enumerate(label_names):
         if label == "Fe":
             print(
