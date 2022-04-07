@@ -662,7 +662,7 @@ def main(args):
         axes[-1].set_xlabel("step number")
         plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
         plt.close('all')
-    if configs['output']['plot_corner']:
-        fig = corner(flat_samples, labels=label_names)
-        fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
-        plt.close('all')
+    #if configs['output']['plot_corner']:
+    #    fig = corner(flat_samples, labels=label_names)
+    #    fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+    #    plt.close('all')
