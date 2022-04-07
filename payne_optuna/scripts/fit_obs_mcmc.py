@@ -423,9 +423,6 @@ def main(args):
         if np.abs(np.max(p_mean - p_mean_last)) < 0.005 \
                 and (sampler.iteration >= 1000) \
                 and np.abs(log_prob_mean - log_prob_mean_last) / log_prob_mean <= 1e-5:
-            p_mean_last = p_mean
-            log_prob_mean_last = log_prob_mean
-            converged = True
             break
         p_mean_last = p_mean
         log_prob_mean_last = log_prob_mean
@@ -453,103 +450,108 @@ def main(args):
     ##############################
     ######## RUN SAMPLING ########
     ##############################
-    # Initialize Walkers
-    n_walkers_sampling = configs['fitting']['n_walkers_burnin']
-    resume_from_burnin1 = False
-    last_state = sampler.get_last_sample()
-    if resume_from_burnin1:
-        print(f"Resuming from Burn-In ({last_state.coords.shape[0]} walkers)")
-        p0 = last_state.coords
-    elif configs['fitting']['use_gaia_phot']:
-        best_walker = last_state.coords[last_state.log_prob.argmax()]
-        p0_ = np.hstack([
-            np.zeros((n_walkers_sampling, 1)),
-            np.zeros((n_walkers_sampling, 1)),
-            best_walker + rng.normal(
-                loc=0,
-                scale=last_state.coords.std(axis=0) / 2,
-                size=(n_walkers_sampling, best_walker.shape[0])
+    converged = False
+    while converged == False:
+        # Initialize Walkers
+        n_walkers_sampling = configs['fitting']['n_walkers_sampling']
+        last_state = sampler.get_last_sample()
+        if configs['fitting']['use_gaia_phot']:
+            best_walker = last_state.coords[last_state.log_prob.argmax()]
+            p0_ = np.hstack([
+                np.zeros((n_walkers_sampling, 1)),
+                np.zeros((n_walkers_sampling, 1)),
+                best_walker + rng.normal(
+                    loc=0,
+                    scale=last_state.coords.std(axis=0) / 2,
+                    size=(n_walkers_sampling, best_walker.shape[0])
+                )
+            ])
+            p0 = clamp_p0(p0_, label_names, priors, payne)[:, 2:]
+        else:
+            best_walker = last_state.coords[last_state.log_prob.argmax()]
+            p0_ = best_walker + 1e-3 * np.random.randn(n_walkers_sampling, best_walker.shape[0])
+            p0 = clamp_p0(p0_, label_names, priors, payne)
+        nwalkers, ndim = p0.shape
+        # Initialize Backend
+        backend = emcee.backends.HDFBackend(sample_file, name=f"samples")
+        backend.reset(nwalkers, ndim)
+        # Initialize Sampler
+        sampler = emcee.EnsembleSampler(
+            nwalkers,
+            ndim,
+            log_probability,
+            moves=[
+                (emcee.moves.DEMove(), 0.8),
+                (emcee.moves.DESnookerMove(), 0.2),
+            ],
+            args=(
+                payne,
+                obs,
+                priors,
+                gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
+            ),
+            vectorize=True,
+            backend=backend,
+        )
+        if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
+            raise RuntimeError("Walkers are improperly initialized")
+        # Sample Until Convergence is Reached
+        max_steps = int(1e4)
+        index = 0
+        autocorr = np.empty(max_steps)
+        old_tau = np.inf
+        for _ in sampler.sample(p0, iterations=max_steps, progress=True, store=True):
+            if sampler.iteration % 100:
+                continue
+            # Check Convergence
+            tau = sampler.get_autocorr_time(
+                discard=int(np.max(old_tau)) if np.all(np.isfinite(old_tau)) else 0,
+                tol=0
             )
-        ])
-        p0 = clamp_p0(p0_, label_names, priors, payne)[:, 2:]
-    else:
-        best_walker = last_state.coords[last_state.log_prob.argmax()]
-        p0_ = best_walker + 1e-3 * np.random.randn(n_walkers_sampling, best_walker.shape[0])
-        p0 = clamp_p0(p0_, label_names, priors, payne)
-    nwalkers, ndim = p0.shape
-    # Initialize Backend
-    backend = emcee.backends.HDFBackend(sample_file, name=f"samples")
-    backend.reset(nwalkers, ndim)
-    # Initialize Sampler
-    sampler = emcee.EnsembleSampler(
-        nwalkers,
-        ndim,
-        log_probability,
-        moves=[
-            (emcee.moves.DEMove(), 0.8),
-            (emcee.moves.DESnookerMove(), 0.2),
-        ],
-        args=(
-            payne,
-            obs,
-            priors,
-            gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
-        ),
-        vectorize=True,
-        backend=backend,
-    )
-    if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
-        raise RuntimeError("Walkers are improperly initialized")
-    # Sample Until Convergence is Reached
-    max_steps = int(1e5)
-    index = 0
-    autocorr = np.empty(max_steps)
-    old_tau = np.inf
-    for _ in sampler.sample(p0, iterations=max_steps, progress=True, store=True):
-        if sampler.iteration % 100:
-            continue
-        # Check Convergence
-        tau = sampler.get_autocorr_time(
-            discard=int(np.max(old_tau)) if np.all(np.isfinite(old_tau)) else 0,
-            tol=0
-        )
-        autocorr[index] = np.mean(tau)
-        print(
-            f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
-            f"Tau = {np.max(tau):.0f}, " +
-            f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f}" +
-            f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
-            f"dTau/Tau = {np.max(np.abs(old_tau - tau) / tau):.3f}, " +
-            f"mean acceptance fraction = {sampler.acceptance_fraction.mean():.2f}"
-        )
-        index += 1
-        # Check convergence
-        converged = np.all(tau * 20 < sampler.iteration)
-        converged &= np.all((tau - old_tau) / tau < 0.01)
-        old_tau = tau
-        if converged:
-            break
-        if sampler.iteration % 500:
-            continue
-        # Plot Chain Update
-        if configs['output']['plot_chains']:
-            samples = sampler.get_chain()
-            if configs['fitting']['use_gaia_phot']:
-                nlabels = len(label_names) - 2
-                _label_names = label_names[2:]
-            else:
-                nlabels = len(label_names)
-                _label_names = label_names
-            fig, axes = plt.subplots(nlabels, figsize=(10, 20), sharex=True)
-            for i in range(nlabels):
-                ax = axes[i]
-                ax.plot(samples[:, :, i], "k", alpha=0.3)
-                ax.set_xlim(0, len(samples))
-                ax.set_ylabel(_label_names[i])
-                ax.yaxis.set_label_coords(-0.1, 0.5)
-            axes[-1].set_xlabel("step number")
-            plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt.png"))
-            plt.close('all')
+            autocorr[index] = np.mean(tau)
+            print(
+                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
+                f"Tau = {np.max(tau):.0f}, " +
+                f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f}" +
+                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
+                f"dTau/Tau = {np.max(np.abs(old_tau - tau) / tau):.3f}, " +
+                f"mean acceptance fraction = {sampler.acceptance_fraction.mean():.2f}"
+            )
+            index += 1
+            # Check convergence
+            converged = np.all(tau * 20 < sampler.iteration)
+            converged &= np.all((tau - old_tau) / tau < 0.01)
+            old_tau = tau
+            if converged:
+                break
+            if sampler.iteration % 500:
+                continue
+            # Plot Chain Update
+            if configs['output']['plot_chains']:
+                samples = sampler.get_chain()
+                if configs['fitting']['use_gaia_phot']:
+                    nlabels = len(label_names) - 2
+                    _label_names = label_names[2:]
+                else:
+                    nlabels = len(label_names)
+                    _label_names = label_names
+                fig, axes = plt.subplots(nlabels, figsize=(10, 20), sharex=True)
+                for i in range(nlabels):
+                    ax = axes[i]
+                    ax.plot(samples[:, :, i], "k", alpha=0.3)
+                    ax.set_xlim(0, len(samples))
+                    ax.set_ylabel(_label_names[i])
+                    ax.yaxis.set_label_coords(-0.1, 0.5)
+                axes[-1].set_xlabel("step number")
+                plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt.png"))
+                plt.close('all')
+        if sampler.iteration == max_steps:
+            print(
+                'Convergence is taking too long; walkers probably got stuck or drifted far from p0.\n' +
+                'Restarting from .'
+            )
+        else:
+            converged = True
 
     #################################
     ######## PROCESS SAMPLES ########
