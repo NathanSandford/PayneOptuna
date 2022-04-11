@@ -496,7 +496,7 @@ def main(args):
         if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
             raise RuntimeError("Walkers are improperly initialized")
         # Sample Until Convergence is Reached
-        max_steps = int(2e4)
+        max_steps = int(1.5e4)
         index = 0
         autocorr = np.empty(max_steps)
         old_tau = np.inf
