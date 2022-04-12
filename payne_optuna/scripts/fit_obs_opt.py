@@ -158,8 +158,6 @@ def main(args):
     post_conv_mask = obs['ovrlp_mask']
     all_masks = (pre_conv_mask & post_conv_mask)
     obs['tot_mask'] = all_masks
-    obs['errs'][~all_masks] = 1e10
-    obs['spec'][~all_masks] = 0
 
     ########################
     ######## MODELS ########
@@ -238,6 +236,8 @@ def main(args):
                 obs['wave'][i][obs['pix_mask'][i]],
                 obs['spec'][i][obs['pix_mask'][i]],
             )
+        # Mask Potential Off-detector Lines
+        pre_conv_mask[:, [0, -1]] = False
         # Convolve Flux and Errors
         conv_obs_flux, conv_obs_errs = payne.inst_broaden(
             wave=ensure_tensor(obs['wave'], precision=torch.float64),
@@ -264,7 +264,7 @@ def main(args):
             model_res=ensure_tensor(default_res),
         )
         # Downsample
-        ds = int(default_res/resolution)
+        ds = int(np.round(default_res/resolution))
         n_ord = obs['wave'].shape[0]
         n_pix = int(obs['wave'].shape[1]/ds)
         wave_ds = np.zeros((n_ord, n_pix))
@@ -314,6 +314,8 @@ def main(args):
         payne.set_obs_wave(wave_ds)
         payne.obs_blaz = ensure_tensor(blaz_ds)
     else:
+        obs['errs'][~all_masks] = 1e10
+        obs['spec'][~all_masks] = 0
         print('Using default resolution')
 
     ######################################
