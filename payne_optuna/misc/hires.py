@@ -31,6 +31,7 @@ class MasterFlats:
             bad_pix_reg = find_runs((raw_blaze < 0) | (raw_blaze > 1e5), 1)
             bad_pix_reg_ext = np.array([reg + [max([-reg[0],-20]), 20] for reg in bad_pix_reg])
             idx = np.concatenate([np.r_[reg[0]:reg[1]] for reg in bad_pix_reg_ext])
+            idx = idx[(idx >= 0) & (idx < len(raw_blaze))]
             mask[idx] = False
         f_flat_1d = UnivariateSpline(x=self.spec_arr[mask], y=raw_blaze[mask], s=self.spec_dim * std, ext='extrapolate')
         return f_flat_1d(self.spec_arr)
