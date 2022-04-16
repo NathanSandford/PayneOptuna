@@ -1,7 +1,9 @@
 from pathlib import Path
 import yaml
 import numpy as np
+import torch
 from payne_optuna.model import LightningPaynePerceptron
+from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior
 
 def load_model(config_file, verbose=True):
     # Load Configs & Set Paths
@@ -71,3 +73,73 @@ def mask_lines(model, line_masks, mask_value=1.0):
                 (model.wavelength > mask['center'] - mask['width'])
                 & (model.wavelength < mask['center'] + mask['width'])
             ] = mask_value
+
+
+def load_minimal_emulator(configs, model_class):
+    model_res = configs['observation']['model_res']
+    cont_deg = configs['fitting']['cont_deg']
+    model_config_dir = Path(configs['paths']['model_config_dir'])
+    model_config_files = sorted(list(model_config_dir.glob('*')))
+    models = []
+    for i, model_config_file in enumerate(model_config_files):
+        model = load_model(model_config_file)
+        models.append(model)
+    models = [models[i] for i in np.argsort([model.wavelength.min() for model in models])]
+    payne = model_class(
+        models=models,
+        cont_deg=cont_deg,
+        cont_wave_norm_range=(-1, 1),
+        obs_wave=None,
+        obs_blaz=None,
+        include_model_errs=True,
+        model_res=model_res,
+        vmacro_method='iso_fft',
+    )
+    return payne
+
+
+def get_priors(payne, configs):
+    stellar_label_priors = []
+    for i, label in enumerate(payne.labels):
+        if label in configs['fitting']['priors']:
+            if (label in ['Teff', 'logg']) and configs['fitting']['use_gaia_phot']:
+                stellar_label_priors.append(
+                    UniformLogPrior(
+                        label,
+                        payne.unscale_stellar_labels(-0.55 * torch.ones(payne.n_stellar_labels))[i],
+                        payne.unscale_stellar_labels(0.55 * torch.ones(payne.n_stellar_labels))[i],
+                    )
+                )
+            elif configs['fitting']['priors'][label][0] == 'N':
+                stellar_label_priors.append(
+                    GaussianLogPrior(
+                        label,
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2]
+                    )
+                )
+            elif configs['fitting']['priors'][label][0] == 'U':
+                stellar_label_priors.append(
+                    UniformLogPrior(
+                        label,
+                        configs['fitting']['priors'][label][1],
+                        configs['fitting']['priors'][label][2]
+                    )
+                )
+            else:
+                raise KeyError(f"Cannot parse prior info for {label}")
+        else:
+            stellar_label_priors.append(
+                UniformLogPrior(
+                    label,
+                    payne.unscale_stellar_labels(-0.55 * torch.ones(payne.n_stellar_labels))[i],
+                    payne.unscale_stellar_labels(0.55 * torch.ones(payne.n_stellar_labels))[i],
+                )
+            )
+    priors = {
+        "stellar_labels": stellar_label_priors,
+        'log_vmacro': UniformLogPrior('log_vmacro', -1, 1.3),
+        'log_vsini': FlatLogPrior('log_vsini'),
+        'inst_res': FlatLogPrior('inst_res')
+    }
+    return priors
