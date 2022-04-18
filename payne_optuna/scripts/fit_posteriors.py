@@ -23,7 +23,6 @@ def parse_args(options=None):
     """
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum w/ Optimizer")
     parser.add_argument("program", help="Program")
-    parser.add_argument("snr", help="SNR")
     if options is None:
         args = parser.parse_args()
     else:
