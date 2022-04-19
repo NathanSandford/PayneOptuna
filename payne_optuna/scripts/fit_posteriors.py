@@ -160,7 +160,7 @@ def main(args):
     ######## Fit Posteriors ######
     ##############################
     stack_df = pd.DataFrame(index=mcmc_df['obs_tag'].unique())
-    for obs_tag in tqdm(mcmc_df['obs_tag'].unique()[:1]):
+    for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
         for i, label in enumerate(tqdm(label_names)):
             if label in ['Teff', 'logg']:
                 continue
@@ -194,8 +194,8 @@ def main(args):
                     )
                 # Sample
                 trace = pm.sample(
-                    draws=1000,
-                    tune=1000,
+                    draws=2000,
+                    tune=2000,
                     initvals={
                         'mu_exp': np.mean(data, axis=1),
                         'sigma_exp': np.std(data, axis=1),
