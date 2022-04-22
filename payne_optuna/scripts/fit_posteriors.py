@@ -61,20 +61,20 @@ def main(args):
     ###############################################
     ######## Read Label Bounds from Priors ########
     ###############################################
+    example_configs = yaml.load(open(program_configs[-1]), Loader=yaml.FullLoader)
+    payne = model_io.load_minimal_emulator(example_configs, PayneStitchedEmulator)
+    priors = model_io.get_priors(payne, example_configs)
+    label_names_ = deepcopy(payne.labels)
+    if example_configs['fitting']['fit_inst_res']:
+        label_names_.append("inst_res")
+    if example_configs['fitting']['fit_vsini']:
+        label_names_.append("log_vsini")
+    if example_configs['fitting']['fit_vmacro']:
+        label_names_.append("log_vmacro")
+    label_names_.append("rv")
+    label_names = deepcopy(label_names_)
+    label_names[label_names.index('log_vmacro')] = 'vmacro'
     if args.overwrite:
-        example_configs = yaml.load(open(program_configs[-1]), Loader=yaml.FullLoader)
-        payne = model_io.load_minimal_emulator(example_configs, PayneStitchedEmulator)
-        priors = model_io.get_priors(payne, example_configs)
-        label_names_ = deepcopy(payne.labels)
-        if example_configs['fitting']['fit_inst_res']:
-            label_names_.append("inst_res")
-        if example_configs['fitting']['fit_vsini']:
-            label_names_.append("log_vsini")
-        if example_configs['fitting']['fit_vmacro']:
-            label_names_.append("log_vmacro")
-        label_names_.append("rv")
-        label_names = deepcopy(label_names_)
-        label_names[label_names.index('log_vmacro')] = 'vmacro'
         lower_bounds = {payne.labels[i]: priors['stellar_labels'][i].lower_bound.item() for i in
                         range(payne.n_stellar_labels)}
         upper_bounds = {payne.labels[i]: priors['stellar_labels'][i].upper_bound.item() for i in
