@@ -250,7 +250,7 @@ def main(args):
                 mu_stack = pm.TruncatedNormal(
                     "mu_stack",
                     mu=np.array(np.mean(mu_exp_med)),
-                    sigma=np.array(np.std(mu_exp_med)),
+                    sigma=np.array(np.mean(sigma_exp_med)),
                     lower=lower_bounds[label],
                     upper=upper_bounds[label],
                 )
@@ -295,7 +295,7 @@ def main(args):
                     ls='-',
                     alpha=0.5,
                 )
-                plt.hist(data[j, :], histtype='step', color=c(j), ls='--', alpha=0.9, density=True)
+                plt.hist(data[j, :], bins=bins, histtype='step', color=c(j), ls='--', alpha=0.9, density=True)
             hist_prod = np.prod(hist, axis=0) / (np.prod(hist, axis=0) * np.diff(bins)).sum()
             a = (lower_bounds[label] - mu_stack_med) / sigma_stack_med
             b = (upper_bounds[label] - mu_stack_med) / sigma_stack_med
