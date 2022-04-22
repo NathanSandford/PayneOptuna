@@ -23,6 +23,7 @@ def parse_args(options=None):
     """
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum w/ Optimizer")
     parser.add_argument("program", help="Program")
+    parser.add_argument('-o', '--overwrite', help="overwrite previous posterior fits")
     if options is None:
         args = parser.parse_args()
     else:
@@ -60,106 +61,125 @@ def main(args):
     ###############################################
     ######## Read Label Bounds from Priors ########
     ###############################################
-    example_configs = yaml.load(open(program_configs[-1]), Loader=yaml.FullLoader)
-    payne = model_io.load_minimal_emulator(example_configs, PayneStitchedEmulator)
-    priors = model_io.get_priors(payne, example_configs)
-    label_names_ = deepcopy(payne.labels)
-    if example_configs['fitting']['fit_inst_res']:
-        label_names_.append("inst_res")
-    if example_configs['fitting']['fit_vsini']:
-        label_names_.append("log_vsini")
-    if example_configs['fitting']['fit_vmacro']:
-        label_names_.append("log_vmacro")
-    label_names_.append("rv")
-    label_names = deepcopy(label_names_)
-    label_names[label_names.index('log_vmacro')] = 'vmacro'
-    lower_bounds = {payne.labels[i]: priors['stellar_labels'][i].lower_bound.item() for i in
-                    range(payne.n_stellar_labels)}
-    upper_bounds = {payne.labels[i]: priors['stellar_labels'][i].upper_bound.item() for i in
-                    range(payne.n_stellar_labels)}
-    lower_bounds['vmacro'] = 10 ** -1.0
-    upper_bounds['vmacro'] = 10 ** +1.3
-    lower_bounds['rv'] = -300
-    upper_bounds['rv'] = +300
-    bounds = pd.DataFrame(
-        [lower_bounds, upper_bounds],
-        index=['lower_bounds', 'upper_bounds'],
-    )
-    bounds.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'bounds')
+    if args.overwrite:
+        example_configs = yaml.load(open(program_configs[-1]), Loader=yaml.FullLoader)
+        payne = model_io.load_minimal_emulator(example_configs, PayneStitchedEmulator)
+        priors = model_io.get_priors(payne, example_configs)
+        label_names_ = deepcopy(payne.labels)
+        if example_configs['fitting']['fit_inst_res']:
+            label_names_.append("inst_res")
+        if example_configs['fitting']['fit_vsini']:
+            label_names_.append("log_vsini")
+        if example_configs['fitting']['fit_vmacro']:
+            label_names_.append("log_vmacro")
+        label_names_.append("rv")
+        label_names = deepcopy(label_names_)
+        label_names[label_names.index('log_vmacro')] = 'vmacro'
+        lower_bounds = {payne.labels[i]: priors['stellar_labels'][i].lower_bound.item() for i in
+                        range(payne.n_stellar_labels)}
+        upper_bounds = {payne.labels[i]: priors['stellar_labels'][i].upper_bound.item() for i in
+                        range(payne.n_stellar_labels)}
+        lower_bounds['vmacro'] = 10 ** -1.0
+        upper_bounds['vmacro'] = 10 ** +1.3
+        lower_bounds['rv'] = -300
+        upper_bounds['rv'] = +300
+        bounds = pd.DataFrame(
+            [lower_bounds, upper_bounds],
+            index=['lower_bounds', 'upper_bounds'],
+        )
+        bounds.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'bounds')
+    else:
+        bounds = pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'bounds')
+        lower_bounds = bounds.loc['lower_bounds']
+        upper_bounds = bounds.loc['upper_bounds']
     ###################################
     ######## Prepare Dataframe ########
     ###################################
-    mcmc_files = sorted(list(mcmc_dir.glob(f'*.h5')))
-    mcmc_files = [mcmc_file for mcmc_file in mcmc_files if mcmc_file.name != 'test.h5']
-    programs = [mcmc_file.parents[1].name for mcmc_file in mcmc_files]
-    stars = [mcmc_file.name.split('_')[0] for mcmc_file in mcmc_files]
-    frames = [mcmc_file.name.split('_')[1] for mcmc_file in mcmc_files]
-    dates = [mcmc_file.name.split('_')[2] for mcmc_file in mcmc_files]
-    tmp_resolutions = [mcmc_file.name.split('_')[3] for mcmc_file in mcmc_files]
-    default_flag = [True if res == 'default' else False for res in tmp_resolutions]
-    resolutions = [int(res) if res != 'default' else example_configs['observation']['default_res'] for res in tmp_resolutions]
-    sample_method = [mcmc_file.name.split('_')[4] if 'snr' in mcmc_file.name else mcmc_file.name.split('_')[4][:-3]
-                          for mcmc_file in mcmc_files]
-    snr_factor = [int(mcmc_file.name.split('_')[5][3:5]) if 'snr' in mcmc_file.name else 1 for mcmc_file in
-                       mcmc_files]
-    exp_tags = [f'{programs[i]}_{stars[i]}_{dates[i]}_{frames[i]}' for i in range(len(mcmc_files))]
-    obs_tags = [f'{programs[i]}_{stars[i]}_{resolutions[i]:05}_{sample_method[i]}_snr{snr_factor[i]:02}' for i in range(len(mcmc_files))]
-    mcmc_df = pd.DataFrame(index=[file.name for file in mcmc_files])
-    mcmc_df['exp_tag'] = exp_tags
-    mcmc_df['obs_tag'] = obs_tags
-    mcmc_df['reference'] = 'Sandford+ 2021'
-    mcmc_df['program'] = programs
-    mcmc_df['star'] = stars
-    mcmc_df['frame'] = frames
-    mcmc_df['date'] = dates
-    mcmc_df['resolution'] = resolutions
-    mcmc_df['samp_method'] = sample_method
-    mcmc_df['snr_factor'] = snr_factor
-    mcmc_df['default_res'] = default_flag
-    mcmc_df['mcmc_file'] = [str(file) for file in mcmc_files]
+    if args.overwrite:
+        mcmc_files = sorted(list(mcmc_dir.glob(f'*.h5')))
+        mcmc_files = [mcmc_file for mcmc_file in mcmc_files if mcmc_file.name != 'test.h5']
+        programs = [mcmc_file.parents[1].name for mcmc_file in mcmc_files]
+        stars = [mcmc_file.name.split('_')[0] for mcmc_file in mcmc_files]
+        frames = [mcmc_file.name.split('_')[1] for mcmc_file in mcmc_files]
+        dates = [mcmc_file.name.split('_')[2] for mcmc_file in mcmc_files]
+        tmp_resolutions = [mcmc_file.name.split('_')[3] for mcmc_file in mcmc_files]
+        default_flag = [True if res == 'default' else False for res in tmp_resolutions]
+        resolutions = [int(res) if res != 'default' else example_configs['observation']['default_res'] for res in tmp_resolutions]
+        sample_method = [mcmc_file.name.split('_')[4] if 'snr' in mcmc_file.name else mcmc_file.name.split('_')[4][:-3]
+                              for mcmc_file in mcmc_files]
+        snr_factor = [int(mcmc_file.name.split('_')[5][3:5]) if 'snr' in mcmc_file.name else 1 for mcmc_file in
+                           mcmc_files]
+        exp_tags = [f'{programs[i]}_{stars[i]}_{dates[i]}_{frames[i]}' for i in range(len(mcmc_files))]
+        obs_tags = [f'{programs[i]}_{stars[i]}_{resolutions[i]:05}_{sample_method[i]}_snr{snr_factor[i]:02}' for i in range(len(mcmc_files))]
+        mcmc_df = pd.DataFrame(index=[file.name for file in mcmc_files])
+        mcmc_df['exp_tag'] = exp_tags
+        mcmc_df['obs_tag'] = obs_tags
+        mcmc_df['reference'] = 'Sandford+ 2021'
+        mcmc_df['program'] = programs
+        mcmc_df['star'] = stars
+        mcmc_df['frame'] = frames
+        mcmc_df['date'] = dates
+        mcmc_df['resolution'] = resolutions
+        mcmc_df['samp_method'] = sample_method
+        mcmc_df['snr_factor'] = snr_factor
+        mcmc_df['default_res'] = default_flag
+        mcmc_df['mcmc_file'] = [str(file) for file in mcmc_files]
+        stack_df = pd.DataFrame(index=mcmc_df['obs_tag'].unique())
+    else:
+        mcmc_df = pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
+        stack_df = pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
     ##############################
     ######## Read Samples ########
     ##############################
-    unscaled_samples_dict = {}
-    for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
-        exp_df = mcmc_df[mcmc_df['obs_tag'] == obs_tag]
-        reader_dict = {}
-        for exp in tqdm(exp_df.index):
-            program = exp_df.loc[exp, 'program']
-            # Median S/N
-            if 'snr' in exp:
-                star, frame, date, resolution, samp_method, snr_factor = exp.split('_')
-            else:
-                star, frame, date, resolution, samp_method = exp.split('_')
-                samp_method = samp_method[:-3]
-            optim_dir = data_dir.joinpath(f"{program}/fits/{star}_{date}")
-            opt_file = optim_dir.joinpath(f'{star}_{frame}_{date}_fit_{resolution}_{samp_method}_1.npz')
-            optim_fit = np.load(opt_file, allow_pickle=True)
-            mcmc_df.loc[exp, 'median_snr'] = np.median(
-                optim_fit['obs_flux'][optim_fit['obs_mask']] / optim_fit['obs_errs'][optim_fit['obs_mask']]
-            ) / mcmc_df.loc[exp, 'snr_factor']
-            # MCMC Samples
-            mcmc_file = exp_df['mcmc_file'].loc[exp]
-            reader = MCMCReader(mcmc_file, payne, label_names)
-            reader_dict[exp] = reader
-        n_samples = np.min(
-            [reader.unscaled_samples.shape[0] for exp, reader in reader_dict.items()]
-        )
-        unscaled_samples_dict[obs_tag] = np.array(
-            [
-                reader.unscaled_samples[
-                    np.random.choice(
-                        reader.unscaled_samples.shape[0],
-                        size=n_samples,
-                        replace=False
-                    )
-                ] for exp, reader in reader_dict.items()
-            ]
-        )
+    if args.overwrite:
+        unscaled_samples_dict = {}
+        for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
+            exp_df = mcmc_df[mcmc_df['obs_tag'] == obs_tag]
+            reader_dict = {}
+            for exp in tqdm(exp_df.index):
+                program = exp_df.loc[exp, 'program']
+                # Median S/N
+                if 'snr' in exp:
+                    star, frame, date, resolution, samp_method, snr_factor = exp.split('_')
+                else:
+                    star, frame, date, resolution, samp_method = exp.split('_')
+                    samp_method = samp_method[:-3]
+                optim_dir = data_dir.joinpath(f"{program}/fits/{star}_{date}")
+                opt_file = optim_dir.joinpath(f'{star}_{frame}_{date}_fit_{resolution}_{samp_method}_1.npz')
+                optim_fit = np.load(opt_file, allow_pickle=True)
+                mcmc_df.loc[exp, 'median_snr'] = np.median(
+                    optim_fit['obs_flux'][optim_fit['obs_mask']] / optim_fit['obs_errs'][optim_fit['obs_mask']]
+                ) / mcmc_df.loc[exp, 'snr_factor']
+                # MCMC Samples
+                mcmc_file = exp_df['mcmc_file'].loc[exp]
+                reader = MCMCReader(mcmc_file, payne, label_names)
+                reader_dict[exp] = reader
+            n_samples = np.min(
+                [reader.unscaled_samples.shape[0] for exp, reader in reader_dict.items()]
+            )
+            unscaled_samples_dict[obs_tag] = np.array(
+                [
+                    reader.unscaled_samples[
+                        np.random.choice(
+                            reader.unscaled_samples.shape[0],
+                            size=n_samples,
+                            replace=False
+                        )
+                    ] for exp, reader in reader_dict.items()
+                ]
+            )
+        # Save Thinned Samples
+        np.savez(data_dir.joinpath(f'{args.program}_mcmc_samples.npz'), **unscaled_samples_dict)
+    else:
+        unscaled_samples_dict = np.load(data_dir.joinpath(f'{args.program}_mcmc_samples.npz'))
     ##############################
     ######## Fit Posteriors ######
     ##############################
-    stack_df = pd.DataFrame(index=mcmc_df['obs_tag'].unique())
+    if args.overwrite:
+        skip = {obs_tag: [] for obs_tag in stack_df.index}
+    else:
+        skip = {obs_tag: [label for label in label_names if not np.isfinite(stack_df.loc[obs_tag, label])]
+                for obs_tag in stack_df.index}
     for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
         for i, label in enumerate(tqdm(label_names)):
             if label in ['Teff', 'logg']:
@@ -304,9 +324,6 @@ def main(args):
             )
             plt.xlim(data.min() - 0.01, data.max() + 0.01)
             plt.savefig(fig_dir.joinpath(f'{obs_tag}_{label}.png'))
-    #########################
-    ######## Save Fits ######
-    #########################
-    mcmc_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
-    stack_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
-    np.savez(data_dir.joinpath(f'{args.program}_mcmc_samples.npz'), **unscaled_samples_dict)
+            # Save Fits (checkpoint)
+            mcmc_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
+            stack_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
