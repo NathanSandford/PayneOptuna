@@ -3,6 +3,7 @@ import yaml
 from pathlib import Path
 from copy import deepcopy
 from tqdm import tqdm
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -74,7 +75,12 @@ def main(args):
     label_names_.append("rv")
     label_names = deepcopy(label_names_)
     label_names[label_names.index('log_vmacro')] = 'vmacro'
-    if args.overwrite:
+    try:
+        pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'bounds')
+        bounds_data_dne = False
+    except (FileNotFoundError, KeyError):
+        bounds_data_dne = True
+    if args.overwrite or bounds_data_dne:
         lower_bounds = {payne.labels[i]: priors['stellar_labels'][i].lower_bound.item() for i in
                         range(payne.n_stellar_labels)}
         upper_bounds = {payne.labels[i]: priors['stellar_labels'][i].upper_bound.item() for i in
@@ -95,7 +101,13 @@ def main(args):
     ###################################
     ######## Prepare Dataframe ########
     ###################################
-    if args.overwrite:
+    try:
+        pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
+        pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
+        posterior_data_dne = False
+    except (FileNotFoundError, KeyError):
+        posterior_data_dne = True
+    if args.overwrite or posterior_data_dne:
         mcmc_files = sorted(list(mcmc_dir.glob(f'*.h5')))
         mcmc_files = [mcmc_file for mcmc_file in mcmc_files if mcmc_file.name != 'test.h5']
         programs = [mcmc_file.parents[1].name for mcmc_file in mcmc_files]
@@ -131,7 +143,12 @@ def main(args):
     ##############################
     ######## Read Samples ########
     ##############################
-    if args.overwrite:
+    try:
+        np.load(data_dir.joinpath(f'{args.program}_mcmc_samples.npz'))
+        sample_data_dne = False
+    except FileNotFoundError:
+        sample_data_dne = True
+    if args.overwrite or sample_data_dne:
         unscaled_samples_dict = {}
         for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
             exp_df = mcmc_df[mcmc_df['obs_tag'] == obs_tag]
