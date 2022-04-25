@@ -24,7 +24,7 @@ def parse_args(options=None):
     """
     parser = argparse.ArgumentParser(description="Fit Observed Spectrum w/ Optimizer")
     parser.add_argument("program", help="Program")
-    parser.add_argument('-o', '--overwrite', help="overwrite previous posterior fits")
+    parser.add_argument('-o', '--overwrite', action='store_true', help="overwrite previous posterior fits")
     if options is None:
         args = parser.parse_args()
     else:
