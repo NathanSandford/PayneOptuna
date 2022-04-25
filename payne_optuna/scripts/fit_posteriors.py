@@ -195,13 +195,20 @@ def main(args):
     if args.overwrite:
         skip = {obs_tag: [] for obs_tag in stack_df.index}
     else:
-        skip = {obs_tag: [label for label in label_names if not np.isfinite(stack_df.loc[obs_tag, label])]
-                for obs_tag in stack_df.index}
+        skip = {
+            obs_tag: [
+                label for label in label_names if np.isfinite(stack_df.loc[obs_tag, label])
+            ]
+                for obs_tag in stack_df.index
+        }
     for obs_tag in tqdm(mcmc_df['obs_tag'].unique()):
         for i, label in enumerate(tqdm(label_names)):
             if label in ['Teff', 'logg']:
                 continue
-            print(f'{obs_tag}_{label}')
+            if label in skip[obs_tag]:
+                print(f'Skipping {obs_tag}_{label}')
+                continue
+            print(f'Fitting {obs_tag}_{label}')
             data = unscaled_samples_dict[obs_tag][:, :, i]
             x = np.linspace(data.min() - 0.1, data.max() + 0.1, 10000)
             dx = np.diff(x)[0]
@@ -241,8 +248,8 @@ def main(args):
                     target_accept=0.9,
                 )
             # Save
-            mu_exp_med = trace.posterior['mu_exp'].median(axis=(0, 1))
-            sigma_exp_med = trace.posterior['sigma_exp'].median(axis=(0, 1))
+            mu_exp_med = trace.posterior['mu_exp'].median(axis=(0, 1)).values
+            sigma_exp_med = trace.posterior['sigma_exp'].median(axis=(0, 1)).values
             mcmc_df.loc[mcmc_df.index[mcmc_df['obs_tag'] == obs_tag], label] = mu_exp_med
             mcmc_df.loc[mcmc_df.index[mcmc_df['obs_tag'] == obs_tag], label + '_err'] = sigma_exp_med
             # SAMPLE FROM STACKED POSTERIOR
@@ -293,8 +300,8 @@ def main(args):
                     target_accept=0.9,
                 )
             # Save
-            mu_stack_med = trace.posterior['mu_stack'].median()
-            sigma_stack_med = trace.posterior['sigma_stack'].median()
+            mu_stack_med = trace.posterior['mu_stack'].median().values
+            sigma_stack_med = trace.posterior['sigma_stack'].median().values
             stack_df.loc[obs_tag, label] = mu_stack_med
             stack_df.loc[obs_tag, label + '_err'] = sigma_stack_med
             ### PLOT FITS ###
