@@ -140,6 +140,14 @@ def main(args):
     else:
         mcmc_df = pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
         stack_df = pd.read_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
+        if 'Teff' not in mcmc_df.columns:
+            print('Adding Teff column')
+            mcmc_df['Teff'] = np.nan
+            stack_df['Teff'] = np.nan
+        if 'logg' not in mcmc_df.columns:
+            print('Adding logg column')
+            mcmc_df['logg'] = np.nan
+            stack_df['logg'] = np.nan
     ##############################
     ######## Read Samples ########
     ##############################
@@ -348,6 +356,7 @@ def main(args):
             )
             plt.xlim(data.min() - 0.01, data.max() + 0.01)
             plt.savefig(fig_dir.joinpath(f'{obs_tag}_{label}.png'))
+            plt.close('all')
             # Save Fits (checkpoint)
             mcmc_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'individual')
             stack_df.to_hdf(data_dir.joinpath(f'{args.program}_mcmc_summary.h5'), 'stacked')
