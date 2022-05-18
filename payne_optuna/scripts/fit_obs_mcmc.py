@@ -182,7 +182,7 @@ def main(args):
         # Decrease S/N
         print(f'Increase Noise by a Factor of {snr_rdx}')
         D, sigma_D = noise_up_spec(obs['flux'], obs['errs'], snr_rdx, seed=8645)
-        obs['flux'] = D
+        obs['flux'] = D[0]
         obs['errs'] = sigma_D
         # Find Best Fit from Previous MCMC
         print('Loading samples from default S/N MCMC')
