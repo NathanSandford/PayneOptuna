@@ -1,0 +1,10 @@
+#!/usr/bin/env python
+
+"""
+Train the Payne
+"""
+from payne_optuna.scripts import fit_post_nuts
+
+
+if __name__ == '__main__':
+    fit_post_nuts.main(fit_post_nuts.parse_args())

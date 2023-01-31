@@ -34,6 +34,7 @@ def main(args):
         output_dir: /PATH/TO/DIRECTORY/OF/MODELS
         spectra_file: training_spectra_and_labels.h5
     training:
+        big_dataset: False
         labels:
         - List
         - Of
@@ -41,6 +42,7 @@ def main(args):
         - To
         - Train
         - On
+        iron_scale: False
         learning_rate: 0.0001
         optimizer: RAdam
         train_fraction: 0.8
@@ -65,19 +67,30 @@ def main(args):
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
     input_dir = Path(configs["paths"]["input_dir"])
-    input_file = input_dir.joinpath(configs["paths"]["spectra_file"])
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
     ckpt_dir = model_dir.joinpath("ckpts")
-    ckpt_file = sorted(list(ckpt_dir.glob('*.ckpt')))[-1]
     results_file = model_dir.joinpath('validation_results.npz')
-    figure_file = model_dir.joinpath('validation_results.png')
+    figure_file_valid = model_dir.joinpath('validation_results_valid.png')
+    figure_file_train = model_dir.joinpath('validation_results_train.png')
+    big_dataset = configs["training"]["big_dataset"]
+    if big_dataset:
+        input_path = input_dir
+    else:
+        input_path = input_dir.joinpath(configs["paths"]["spectra_file"])
 
     # Load Meta
     with open(meta_file) as file:
         meta = yaml.load(file, Loader=yaml.UnsafeLoader)
 
+    # Find Best Checkpoint
+    all_ckpts = sorted(list(ckpt_dir.glob("*.ckpt")))
+    if len(all_ckpts) > 0:
+        idx = np.argmin([float(ckpt.name.split('=')[-1].split('ckpt')[0][:-1]) for ckpt in all_ckpts])
+        ckpt_file = all_ckpts[idx]
+    else:
+        raise RuntimeError("No checkpoint files found!")
     # Load the Payne
     NN_model = LightningPaynePerceptron.load_from_checkpoint(
         ckpt_file,
@@ -90,40 +103,65 @@ def main(args):
     pl.seed_everything(configs["training"]["random_state"])
 
     # Initialize DataModule
+    try:
+        input_dir.joinpath('virtual_dataset.h5').unlink()
+    except FileNotFoundError:
+        pass
     datamodule = PayneDataModule(
-        input_file=input_file,
+        input_path=input_path,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
+        iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
         pin_memory=False,
+        big_dataset=big_dataset,
     )
     datamodule.setup()
-    training_dataset = datamodule.training_dataset.dataset.__getitem__(datamodule.training_dataset.indices)
-    validation_dataset = datamodule.validation_dataset.dataset.__getitem__(datamodule.validation_dataset.indices)
+    validation_dataset = datamodule.validation_dataset.dataset.__getitem__(sorted(datamodule.validation_dataset.indices))
+    training_dataset = datamodule.training_dataset.dataset.__getitem__(sorted(datamodule.training_dataset.indices))
 
     # Perform Validation
-    model_spec = NN_model(validation_dataset['labels'].T).detach().numpy()
-    valid_spec = validation_dataset['spectrum'].T.detach().numpy()
-    approx_err = np.abs(model_spec - valid_spec)
-    median_approx_err_star = np.median(approx_err, axis=1)
-    median_approx_err_wave = np.median(approx_err, axis=0)
-    twosigma_approx_err_wave = np.quantile(approx_err, q=0.9545, axis=0)
+    model_spec_valid = NN_model(validation_dataset['labels']).detach().numpy()
+    model_spec_train = NN_model(training_dataset['labels']).detach().numpy()
+    valid_spec = validation_dataset['spectrum'].detach().numpy()
+    train_spec = training_dataset['spectrum'].detach().numpy()
+    approx_err_valid = np.abs(model_spec_valid - valid_spec)
+    approx_err_train = np.abs(model_spec_train - train_spec)
+    median_approx_err_star_valid = np.median(approx_err_valid, axis=1)
+    median_approx_err_wave_valid = np.median(approx_err_valid, axis=0)
+    median_approx_err_star_train = np.median(approx_err_train, axis=1)
+    median_approx_err_wave_train = np.median(approx_err_train, axis=0)
+    twosigma_approx_err_wave_valid = np.quantile(approx_err_valid, q=0.9545, axis=0)
+    twosigma_approx_err_wave_train = np.quantile(approx_err_train, q=0.9545, axis=0)
 
     np.savez(
         results_file,
-        median_approx_err_star=median_approx_err_star,
-        median_approx_err_wave=median_approx_err_wave,
-        twosigma_approx_err_wave=twosigma_approx_err_wave,
+        median_approx_err_star_valid=median_approx_err_star_valid,
+        median_approx_err_wave_valid=median_approx_err_wave_valid,
+        twosigma_approx_err_wave_valid=twosigma_approx_err_wave_valid,
+        median_approx_err_star_train=median_approx_err_star_train,
+        median_approx_err_wave_train=median_approx_err_wave_train,
+        twosigma_approx_err_wave_train=twosigma_approx_err_wave_train,
     )
 
     fig = validation_plots(
         wavelength=NN_model.wavelength,
         valid_spec=valid_spec,
-        approx_err=approx_err,
-        median_approx_err_star=median_approx_err_star,
-        median_approx_err_wave=median_approx_err_wave,
-        twosigma_approx_err_wave=twosigma_approx_err_wave
+        approx_err=approx_err_valid,
+        median_approx_err_star=median_approx_err_star_valid,
+        median_approx_err_wave=median_approx_err_wave_valid,
+        twosigma_approx_err_wave=twosigma_approx_err_wave_valid,
     )
-    fig.savefig(figure_file)
+    fig.savefig(figure_file_valid)
+
+    fig = validation_plots(
+        wavelength=NN_model.wavelength,
+        valid_spec=train_spec,
+        approx_err=approx_err_train,
+        median_approx_err_star=median_approx_err_star_train,
+        median_approx_err_wave=median_approx_err_wave_train,
+        twosigma_approx_err_wave=twosigma_approx_err_wave_train,
+    )
+    fig.savefig(figure_file_train)

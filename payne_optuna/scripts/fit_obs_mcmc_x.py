@@ -75,6 +75,7 @@ def main(args):
     snr_rdx = configs['observation']['snr_rdx']
     snr_tag = f'_snr{snr_rdx:02.0f}' if snr_rdx is not False else ''
     obs_name = f'{star}_{frame}_{date}'
+    n_fits = configs['fitting']['n_fits']
     # I/O Prep
     model_config_dir = Path(configs['paths']['model_config_dir'])
     data_dir = Path(configs['paths']['data_dir'])
@@ -181,8 +182,14 @@ def main(args):
     if snr_rdx is not False:
         # Decrease S/N
         print(f'Increase Noise by a Factor of {snr_rdx}')
-        D, sigma_D = noise_up_spec(obs['flux'], obs['errs'], snr_rdx, seed=8645)
-        obs['flux'] = D[0]
+        D, sigma_D = noise_up_spec(
+            D0=obs['flux'],
+            sigma_D0=obs['errs'],
+            factor=snr_rdx,
+            nspec=n_fits,
+            seed=8645,
+        )
+        obs['flux'] = D
         obs['errs'] = sigma_D
         # Find Best Fit from Previous MCMC
         print('Loading samples from default S/N MCMC')
@@ -202,11 +209,13 @@ def main(args):
         for j in range(n_ord):
             ax = plt.subplot(gs[j, 0])
             ax.plot(obs['wave'][j], obs['blaz'][j], alpha=0.8, c='r', label='Scaled Blaze')
-            ax.scatter(
-                obs['wave'][j],
-                obs['flux'][j],
-                alpha=0.8, marker='.', s=1, c='k', label='Observed Spectrum'
-            )
+            for k in range(n_fits):
+                ax.scatter(
+                    obs['wave'][j],
+                    obs['flux'][k,j],
+                    alpha=0.25, marker='.', s=1, c='k',
+                    label='Observed Spectrum' if k==0 else None,
+                )
             for k, conv_mask_range in enumerate(find_runs(0.0, obs['mask'][j])):
                 label = 'Mask' if k == 0 else ''
                 ax.axvspan(
@@ -215,14 +224,15 @@ def main(args):
                     color='grey', alpha=0.2, label=label,
                 )
             try:
-                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][j][obs['mask'][j]], 0.95))
+                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][0,j][obs['mask'][j]], 0.95))
             except IndexError:
                 warn(f'No unmasked pixels in order idx={j}')
-                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][j], 0.95))
+                ax.set_ylim(0, 1.5 * np.quantile(obs['flux'][0,j], 0.95))
             if j == 0:
                 ax.set_title(obs_name)
                 ax.legend(fontsize=8)
         plt.savefig(fig_dir.joinpath(f'{obs_name}_obs_{resolution}{snr_tag}.mcmc.png'))
+        plt.show()
         plt.close('all')
 
     ####################################
@@ -277,8 +287,9 @@ def main(args):
         GaussianLogPrior('inst_res', int(resolution), 0.01 * int(resolution)),
         'rv': FlatLogPrior('rv'),
     }
+
     # Define Posterior Function
-    def log_probability(theta, model, obs, priors, cmd_interp_fn=None):
+    def log_probability(theta, model, obs, priors, index, cmd_interp_fn=None):
         fe_idx = model.labels.index('Fe')
         nwalkers = theta.shape[0]
         if cmd_interp_fn:
@@ -334,7 +345,7 @@ def main(args):
         )
         log_likelihood = gaussian_log_likelihood(
             pred=mod_spec,
-            target=ensure_tensor(obs['flux']),
+            target=ensure_tensor(obs['flux'][index]),
             pred_errs=mod_errs,
             target_errs=ensure_tensor(obs['errs']),
         )
@@ -355,107 +366,110 @@ def main(args):
         log_priors += priors['rv'](ensure_tensor(rv))
         return (log_likelihood + log_priors).detach().numpy()
 
-    #################################
-    ######## BURN IN WALKERS ########
-    #################################
-    ### Run Burn-In 1 ###
-    # Initialize Walkers
-    n_walkers_burnin = configs['fitting']['n_walkers_burnin']
-    if snr_rdx is False:
-        p0_list = [optim_fit["stellar_labels"][0]]
-        if configs['fitting']['fit_inst_res']:
-            p0_list.append(optim_fit["inst_res"][0])
-        if configs['fitting']['fit_vsini']:
-            p0_list.append(optim_fit["log_vsini"][0])
-        if configs['fitting']['fit_vmacro']:
-            p0_list.append(optim_fit["log_vmacro"][0])
-        p0_list.append(optim_fit["rv"])
-    else:
-        p0_list = [reader.scaled_mean[:payne.n_stellar_labels]]
-        if configs['fitting']['fit_inst_res']:
-            p0_list.append([reader.scaled_mean[label_names.index('inst_res')]])
-        if configs['fitting']['fit_vsini']:
-            p0_list.append([reader.scaled_mean[label_names.index('log_vsini')]])
-        if configs['fitting']['fit_vmacro']:
-            p0_list.append([reader.scaled_mean[label_names.index('log_vmacro')]])
-        p0_list.append([reader.scaled_mean[label_names.index('rv')]])
-    p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(n_walkers_burnin, len(label_names)))
-    p0 = clamp_p0(p0_, label_names, priors, payne)
-    if configs['fitting']['use_gaia_phot']:
-        p0 = p0[:, 2:]
-    nwalkers, ndim = p0.shape
-    # Initialize Backend
-    sample_file = sample_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.h5")
-    backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_1")
-    backend.reset(nwalkers, ndim)
-    # Initialize Sampler
-    sampler = emcee.EnsembleSampler(
-        nwalkers,
-        ndim,
-        log_probability,
-        moves=[
-            (emcee.moves.DEMove(), 0.8),
-            (emcee.moves.DESnookerMove(), 0.2),
-        ],
-        args=(
-            payne,
-            obs,
-            priors,
-            gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
-        ),
-        vectorize=True,
-        backend=backend,
-    )
-    if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
-        raise RuntimeError("Walkers are improperly initialized")
-    # Run Sampler until walkers stop wandering
-    p_mean_last = p0.mean(0)
-    log_prob_mean_last = -np.inf
-    converged = False
-    for _ in sampler.sample(p0, iterations=10000, progress=True, store=True):
-        if (sampler.iteration % 100):
-            continue
-        p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
-        log_prob_mean = sampler.get_log_prob(discard=sampler.iteration - 1).mean()
-        print(f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): ")
-        print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
-        print(f'mean log(d_logP) = {np.log10(np.abs((log_prob_mean - log_prob_mean_last) / log_prob_mean)):0.2f}')
-        if np.abs(np.max(p_mean - p_mean_last)) < 0.005 \
-                and (sampler.iteration >= 1000) \
-                and np.abs(log_prob_mean - log_prob_mean_last) / log_prob_mean <= 1e-5:
-            break
-        p_mean_last = p_mean
-        log_prob_mean_last = log_prob_mean
-    if configs['output']['plot_chains']:
-        samples = sampler.get_chain()
-        if configs['fitting']['use_gaia_phot']:
-            nlabels = len(label_names) - 2
-            _label_names = label_names[2:]
-        else:
-            nlabels = len(label_names)
-            _label_names = label_names
-        fig, axes = plt.subplots(nlabels, figsize=(10, 20), sharex=True)
-        for i in range(nlabels):
-            ax = axes[i]
-            ax.plot(samples[:, :, i], "k", alpha=0.3)
-            ax.set_xlim(0, len(samples))
-            ax.set_ylabel(_label_names[i])
-            ax.yaxis.set_label_coords(-0.1, 0.5)
-        axes[-1].set_xlabel("step number")
-        plt.savefig(
-            fig_dir.joinpath(f"{obs_name}_burnin_1_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
-        plt.close('all')
-    print('Burn-In 1 Complete')
-
-    ##############################
-    ######## RUN SAMPLING ########
-    ##############################
-    converged = False
-    while converged == False:
+    for n in range(n_fits):
+        #################################
+        ######## BURN IN WALKERS ########
+        #################################
+        ### Run Burn-In ###
         # Initialize Walkers
-        n_walkers_sampling = configs['fitting']['n_walkers_sampling']
-        last_state = sampler.get_last_sample()
+        n_walkers_burnin = configs['fitting']['n_walkers_burnin']
+        if snr_rdx is False:
+            p0_list = [optim_fit["stellar_labels"][0]]
+            if configs['fitting']['fit_inst_res']:
+                p0_list.append(optim_fit["inst_res"][0])
+            if configs['fitting']['fit_vsini']:
+                p0_list.append(optim_fit["log_vsini"][0])
+            if configs['fitting']['fit_vmacro']:
+                p0_list.append(optim_fit["log_vmacro"][0])
+            p0_list.append(optim_fit["rv"])
+        else:
+            p0_list = [reader.scaled_mean[:payne.n_stellar_labels]]
+            if configs['fitting']['fit_inst_res']:
+                p0_list.append([reader.scaled_mean[label_names.index('inst_res')]])
+            if configs['fitting']['fit_vsini']:
+                p0_list.append([reader.scaled_mean[label_names.index('log_vsini')]])
+            if configs['fitting']['fit_vmacro']:
+                p0_list.append([reader.scaled_mean[label_names.index('log_vmacro')]])
+            p0_list.append([reader.scaled_mean[label_names.index('rv')]])
+        p0_ = np.concatenate(p0_list) + 0.1 * rng.normal(size=(n_walkers_burnin, len(label_names)))
+        p0 = clamp_p0(p0_, label_names, priors, payne)
         if configs['fitting']['use_gaia_phot']:
+            p0 = p0[:, 2:]
+        nwalkers, ndim = p0.shape
+        # Initialize Backend
+        sample_file = sample_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.h5")
+        backend = emcee.backends.HDFBackend(sample_file, name=f"burn_in_{n}")
+        backend.reset(nwalkers, ndim)
+        # Initialize Sampler
+        sampler = emcee.EnsembleSampler(
+            nwalkers,
+            ndim,
+            log_probability,
+            moves=[
+                (emcee.moves.DEMove(), 0.8),
+                (emcee.moves.DESnookerMove(), 0.2),
+            ],
+            args=(
+                payne,
+                obs,
+                priors,
+                n,
+                gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
+            ),
+            vectorize=True,
+            backend=backend,
+        )
+        if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
+            raise RuntimeError("Walkers are improperly initialized")
+        # Run Sampler until walkers stop wandering
+        p_mean_last = p0.mean(0)
+        log_prob_mean_last = -np.inf
+        converged = False
+        for _ in sampler.sample(p0, iterations=5000, progress=True, store=True):
+            if (sampler.iteration % 100):
+                continue
+            p_mean = sampler.get_chain(flat=True, thin=1, discard=sampler.iteration - 100).mean(0)
+            log_prob_mean = sampler.get_log_prob(discard=sampler.iteration - 1).mean()
+            print(f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n} ({sampler.iteration}): ")
+            print(f'max(dMean) = {np.max(p_mean - p_mean_last):0.04f}')
+            print(f'mean log(d_logP) = {np.log10(np.abs((log_prob_mean - log_prob_mean_last) / log_prob_mean)):0.2f}')
+            if (sampler.iteration >= 1000) \
+                    and np.abs(log_prob_mean - log_prob_mean_last) / log_prob_mean <= 1e-5:
+                break
+            p_mean_last = p_mean
+            log_prob_mean_last = log_prob_mean
+        if configs['output']['plot_chains']:
+            samples = sampler.get_chain()
+            if configs['fitting']['use_gaia_phot']:
+                nlabels = len(label_names) - 2
+                _label_names = label_names[2:]
+            else:
+                nlabels = len(label_names)
+                _label_names = label_names
+            fig, axes = plt.subplots(nlabels, figsize=(10, 20), sharex=True)
+            for i in range(nlabels):
+                ax = axes[i]
+                ax.plot(samples[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples))
+                ax.set_ylabel(_label_names[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+            axes[-1].set_xlabel("step number")
+            plt.savefig(
+                fig_dir.joinpath(f"{obs_name}_burnin_{n}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
+            plt.close('all')
+        print(f'Burn-In {n} Complete')
+
+        ##############################
+        ######## RUN SAMPLING ########
+        ##############################
+        # Initialize Walkers
+        n_walkers_sampling = configs['fitting']['n_walkers_burnin']
+        resume_from_burnin1 = False
+        last_state = sampler.get_last_sample()
+        if resume_from_burnin1:
+            print(f"Resuming from Burn-In ({last_state.coords.shape[0]} walkers)")
+            p0 = last_state.coords
+        elif configs['fitting']['use_gaia_phot']:
             best_walker = last_state.coords[last_state.log_prob.argmax()]
             p0_ = np.hstack([
                 np.zeros((n_walkers_sampling, 1)),
@@ -473,7 +487,7 @@ def main(args):
             p0 = clamp_p0(p0_, label_names, priors, payne)
         nwalkers, ndim = p0.shape
         # Initialize Backend
-        backend = emcee.backends.HDFBackend(sample_file, name=f"samples")
+        backend = emcee.backends.HDFBackend(sample_file, name=f"samples_{n}")
         backend.reset(nwalkers, ndim)
         # Initialize Sampler
         sampler = emcee.EnsembleSampler(
@@ -488,6 +502,7 @@ def main(args):
                 payne,
                 obs,
                 priors,
+                n,
                 gaia_cmd_interp if configs['fitting']['use_gaia_phot'] else None
             ),
             vectorize=True,
@@ -496,7 +511,7 @@ def main(args):
         if not np.all(np.isfinite(sampler.compute_log_prob(p0)[0])):
             raise RuntimeError("Walkers are improperly initialized")
         # Sample Until Convergence is Reached
-        max_steps = int(1.5e4)
+        max_steps = int(1e5)
         index = 0
         autocorr = np.empty(max_steps)
         old_tau = np.inf
@@ -510,10 +525,10 @@ def main(args):
             )
             autocorr[index] = np.mean(tau)
             print(
-                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
+                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n} ({sampler.iteration}): " +
                 f"Tau = {np.max(tau):.0f}, " +
                 f"t/20Tau = {sampler.iteration / (20 * np.max(tau)):.2f}" +
-                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} ({sampler.iteration}): " +
+                f"\n{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n} ({sampler.iteration}): " +
                 f"dTau/Tau = {np.max(np.abs(old_tau - tau) / tau):.3f}, " +
                 f"mean acceptance fraction = {sampler.acceptance_fraction.mean():.2f}"
             )
@@ -543,126 +558,119 @@ def main(args):
                     ax.set_ylabel(_label_names[i])
                     ax.yaxis.set_label_coords(-0.1, 0.5)
                 axes[-1].set_xlabel("step number")
-                plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt.png"))
+                plt.savefig(fig_dir.joinpath(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_ckpt_{n}.png"))
                 plt.close('all')
-        if sampler.iteration == max_steps:
-            print(
-                'Convergence is taking too long; walkers probably got stuck or drifted far from p0.\n' +
-                'Restarting from .'
-            )
-        else:
-            converged = True
 
-    #################################
-    ######## PROCESS SAMPLES ########
-    #################################
-    if configs['fitting']['use_gaia_phot']:
-        # Get Chains
-        scaled_samples = np.concatenate([
-            np.zeros((sampler.iteration, nwalkers, 1)),
-            np.zeros((sampler.iteration, nwalkers, 1)),
-            sampler.get_chain(),
-        ], axis=2)
-        # Get Flat Samples
-        _scaled_flat_samples = sampler.get_chain(
-            discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
-        )
-        scaled_flat_samples = np.concatenate([
-            np.zeros((_scaled_flat_samples.shape[0], 1)),
-            np.zeros((_scaled_flat_samples.shape[0], 1)),
-            _scaled_flat_samples,
-        ], axis=1)
-    else:
-        # Get Chains
-        scaled_samples = sampler.get_chain()
-        # Get Flat Samples
-        scaled_flat_samples = sampler.get_chain(
-            discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
-        )
-    # Unscale Samples
-    unscaled_samples = payne.unscale_stellar_labels(
-        ensure_tensor(
-            scaled_samples[:, :, :payne.n_stellar_labels].reshape(-1, payne.n_stellar_labels)
-        )
-    ).reshape(-1, nwalkers, payne.n_stellar_labels).detach().numpy()
-    unscaled_flat_samples = payne.unscale_stellar_labels(
-        ensure_tensor(scaled_flat_samples[:, :payne.n_stellar_labels])
-    ).detach().numpy()
-    # Get Teff and log(g) from [Fe/H] and Photometry
-    if configs['fitting']['use_gaia_phot']:
-        for i in tqdm(range(nwalkers)):
-            fe_phot = np.vstack([
-                unscaled_samples[:, i, payne.labels.index('Fe')],
-                obs['bp-rp'] * np.ones(sampler.iteration),
-                obs['g'] * np.ones(sampler.iteration)
+        #################################
+        ######## PROCESS SAMPLES ########
+        #################################
+        if configs['fitting']['use_gaia_phot']:
+            # Get Chains
+            scaled_samples = np.concatenate([
+                np.zeros((sampler.iteration, nwalkers, 1)),
+                np.zeros((sampler.iteration, nwalkers, 1)),
+                sampler.get_chain(),
+            ], axis=2)
+            # Get Flat Samples
+            _scaled_flat_samples = sampler.get_chain(
+                discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
+            )
+            scaled_flat_samples = np.concatenate([
+                np.zeros((_scaled_flat_samples.shape[0], 1)),
+                np.zeros((_scaled_flat_samples.shape[0], 1)),
+                _scaled_flat_samples,
+            ], axis=1)
+        else:
+            # Get Chains
+            scaled_samples = sampler.get_chain()
+            # Get Flat Samples
+            scaled_flat_samples = sampler.get_chain(
+                discard=int(5 * np.max(tau)), thin=int(np.max(tau) / 2), flat=True
+            )
+        # Unscale Samples
+        unscaled_samples = payne.unscale_stellar_labels(
+            ensure_tensor(
+                scaled_samples[:, :, :payne.n_stellar_labels].reshape(-1, payne.n_stellar_labels)
+            )
+        ).reshape(-1, nwalkers, payne.n_stellar_labels).detach().numpy()
+        unscaled_flat_samples = payne.unscale_stellar_labels(
+            ensure_tensor(scaled_flat_samples[:, :payne.n_stellar_labels])
+        ).detach().numpy()
+        # Get Teff and log(g) from [Fe/H] and Photometry
+        if configs['fitting']['use_gaia_phot']:
+            for i in tqdm(range(nwalkers)):
+                fe_phot = np.vstack([
+                    unscaled_samples[:, i, payne.labels.index('Fe')],
+                    obs['bp-rp'] * np.ones(sampler.iteration),
+                    obs['g'] * np.ones(sampler.iteration)
+                ]).T
+                logg, logTeff = gaia_cmd_interp(fe_phot).T
+                unscaled_samples[:, i, 0] = 10 ** logTeff
+                unscaled_samples[:, i, 1] = logg
+            fe_phot_flat = np.vstack([
+                unscaled_flat_samples[:, payne.labels.index('Fe')],
+                obs['bp-rp'] * np.ones(unscaled_flat_samples.shape[0]),
+                obs['g'] * np.ones(unscaled_flat_samples.shape[0])
             ]).T
-            logg, logTeff = gaia_cmd_interp(fe_phot).T
-            unscaled_samples[:, i, 0] = 10 ** logTeff
-            unscaled_samples[:, i, 1] = logg
-        fe_phot_flat = np.vstack([
-            unscaled_flat_samples[:, payne.labels.index('Fe')],
-            obs['bp-rp'] * np.ones(unscaled_flat_samples.shape[0]),
-            obs['g'] * np.ones(unscaled_flat_samples.shape[0])
-        ]).T
-        logg, logTeff = gaia_cmd_interp(fe_phot_flat).T
-        unscaled_flat_samples[:, 0] = 10 ** logTeff
-        unscaled_flat_samples[:, 1] = logg
-    samples = np.concatenate([
-        unscaled_samples,
-        scaled_samples[:, :, payne.n_stellar_labels:]
-    ], axis=-1)
-    flat_samples = np.concatenate([
-        unscaled_flat_samples,
-        scaled_flat_samples[:, payne.n_stellar_labels:]
-    ], axis=1)
-    # Calculate Mean and Standard Deviation
-    scaled_mean = scaled_flat_samples.mean(axis=0)
-    scaled_std = scaled_flat_samples.std(axis=0)
-    unscaled_mean = unscaled_flat_samples.mean(axis=0)
-    unscaled_std = unscaled_flat_samples.std(axis=0)
-    print(f"{obs_name}_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag} Sampling Summary:")
-    for i, label in enumerate(label_names):
-        if label == "Fe":
-            print(
-                f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' +
-                f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
-            )
-        elif label in ["Teff", "logg", "v_micro"]:
-            print(
-                f'{label}\t = {unscaled_mean[i]:.4f} ' +
-                f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
-            )
-        elif label == "inst_res":
-            print(
-                f'{label}\t = {scaled_mean[i] * int(args.resolution):.0f} ' +
-                f'+/- {scaled_std[i] * int(args.resolution):.0f}'
-            )
-        elif label in ["rv", "log_vmacro", "log_vsini"]:
-            print(
-                f'{label}\t = {scaled_mean[i]:.2f} +/- {scaled_std[i]:.2f}'
-            )
-        else:
-            print(
-                f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' +
-                f'+/- {np.sqrt(unscaled_std[i] ** 2 + unscaled_std[payne.labels.index("Fe")] ** 2):.4f} ' +
-                f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
-            )
+            logg, logTeff = gaia_cmd_interp(fe_phot_flat).T
+            unscaled_flat_samples[:, 0] = 10 ** logTeff
+            unscaled_flat_samples[:, 1] = logg
+        samples = np.concatenate([
+            unscaled_samples,
+            scaled_samples[:, :, payne.n_stellar_labels:]
+        ], axis=-1)
+        flat_samples = np.concatenate([
+            unscaled_flat_samples,
+            scaled_flat_samples[:, payne.n_stellar_labels:]
+        ], axis=1)
+        # Calculate Mean and Standard Deviation
+        scaled_mean = scaled_flat_samples.mean(axis=0)
+        scaled_std = scaled_flat_samples.std(axis=0)
+        unscaled_mean = unscaled_flat_samples.mean(axis=0)
+        unscaled_std = unscaled_flat_samples.std(axis=0)
+        print(f"{obs_name} ({n}) Sampling Summary:")
+        for i, label in enumerate(label_names):
+            if label == "Fe":
+                print(
+                    f'[{label}/H]\t = {unscaled_mean[i]:.4f} ' +
+                    f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
+                )
+            elif label in ["Teff", "logg", "v_micro"]:
+                print(
+                    f'{label}\t = {unscaled_mean[i]:.4f} ' +
+                    f'+/- {unscaled_std[i]:.4f} ({scaled_mean[i]:.4f} +/- {scaled_std[i]:.4f})'
+                )
+            elif label == "inst_res":
+                print(
+                    f'{label}\t = {scaled_mean[i] * int(args.resolution):.0f} ' +
+                    f'+/- {scaled_std[i] * int(args.resolution):.0f}'
+                )
+            elif label in ["rv", "log_vmacro", "log_vsini"]:
+                print(
+                    f'{label}\t = {scaled_mean[i]:.2f} +/- {scaled_std[i]:.2f}'
+                )
+            else:
+                print(
+                    f'[{label}/Fe]\t = {unscaled_mean[i] - unscaled_mean[payne.labels.index("Fe")]:.4f} ' +
+                    f'+/- {np.sqrt(unscaled_std[i] ** 2 + unscaled_std[payne.labels.index("Fe")] ** 2):.4f} ' +
+                    f'({scaled_mean[i]:.4f} +/- {unscaled_std[i]:.4f})'
+                )
 
-    ##############################
-    ######## PLOT SAMPLES ########
-    ##############################
-    if configs['output']['plot_chains']:
-        fig, axes = plt.subplots(len(label_names), figsize=(10, 15), sharex=True)
-        for i in range(len(label_names)):
-            ax = axes[i]
-            ax.plot(samples[:, :, i], "k", alpha=0.3)
-            ax.set_xlim(0, len(samples))
-            ax.set_ylabel(label_names[i])
-            ax.yaxis.set_label_coords(-0.1, 0.5)
-        axes[-1].set_xlabel("step number")
-        plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
-        plt.close('all')
-    #if configs['output']['plot_corner']:
-    #    fig = corner(flat_samples, labels=label_names)
-    #    fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}.png"))
-    #    plt.close('all')
+        ##############################
+        ######## PLOT SAMPLES ########
+        ##############################
+        if configs['output']['plot_chains']:
+            fig, axes = plt.subplots(len(label_names), figsize=(10, 15), sharex=True)
+            for i in range(len(label_names)):
+                ax = axes[i]
+                ax.plot(samples[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples))
+                ax.set_ylabel(label_names[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+            axes[-1].set_xlabel("step number")
+            plt.savefig(fig_dir.joinpath(f"{obs_name}_chains_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n}.png"))
+            plt.close('all')
+        if configs['output']['plot_corner']:
+            fig = corner(flat_samples, labels=label_names)
+            fig.savefig(fig_dir.joinpath(f"{obs_name}_corner_{resolution}_{'bin' if bin_errors else 'int'}{snr_tag}_{n}.png"))
+            plt.close('all')

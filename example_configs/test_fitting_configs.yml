@@ -1,0 +1,7 @@
+name: HIRES_E4_K431_B_train
+paths:
+  training_config: /global/scratch/nathan_sandford/payne_wrkdir/configs/HIRES_E4_K431_B_train.yml
+  obs_dir: /global/scratch/nathan_sandford/payne_wrkdir/data/
+  obs_file: spec1d_K431_971.fits
+max_order: 88
+min_order: 68

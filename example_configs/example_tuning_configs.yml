@@ -4,6 +4,7 @@ paths:
   output_dir: /PATH/TO/MODELS
   spectra_file: example_dataset.h5
 training:
+  big_dataset: False
   labels:
   - Teff
   - logg
@@ -13,6 +14,7 @@ training:
   - Ca
   - Cr
   - Mg
+  iron_scale: False
   train_fraction: 0.8
   batchsize: 512
   epochs: 10000

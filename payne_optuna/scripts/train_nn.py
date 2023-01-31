@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 import yaml
 import torch
+import numpy as np
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from payne_optuna.model import LightningPaynePerceptron
@@ -39,6 +40,7 @@ def main(args):
         output_dir: /PATH/TO/DIRECTORY/OF/MODELS
         spectra_file: training_spectra_and_labels.h5
     training:
+        big_dataset: False
         labels:
         - List
         - Of
@@ -46,6 +48,7 @@ def main(args):
         - To
         - Train
         - On
+        iron_scale: False
         learning_rate: 0.0001
         optimizer: RAdam
         train_fraction: 0.8
@@ -71,7 +74,6 @@ def main(args):
         configs = yaml.load(file, Loader=yaml.FullLoader)
     model_name = configs["name"]
     input_dir = Path(configs["paths"]["input_dir"])
-    input_file = input_dir.joinpath(configs["paths"]["spectra_file"])
     output_dir = Path(configs["paths"]["output_dir"])
     model_dir = output_dir.joinpath(model_name)
     meta_file = model_dir.joinpath("training_meta.yml")
@@ -79,6 +81,11 @@ def main(args):
     logger_dir = output_dir.joinpath("tb_logs")
     if not model_dir.is_dir():
         model_dir.mkdir()
+    big_dataset = configs["training"]["big_dataset"]
+    if big_dataset:
+        input_path = input_dir
+    else:
+        input_path = input_dir.joinpath(configs["paths"]["spectra_file"])
 
     # Initialize Callbacks
     metrics_callback = MetricsCallback(["train-loss", "val-loss"])
@@ -107,7 +114,13 @@ def main(args):
     if args.checkpoint:
         checkpoint = ckpt_dir.joinpath(args.checkpoint)
     elif args.resume:
-        checkpoint = sorted(list(ckpt_dir.glob("*.ckpt")))[-1]
+        all_ckpts = sorted(list(ckpt_dir.glob("*.ckpt")))
+        if len(all_ckpts) > 0:
+            idx = np.argmin([float(ckpt.name.split('=')[-1].split('ckpt')[0][:-1]) for ckpt in all_ckpts])
+            checkpoint = all_ckpts[idx]
+        else:
+            print('No checkpoint to resume; beginning training from scratch')
+            checkpoint = None
     else:
         checkpoint = None
 
@@ -117,7 +130,8 @@ def main(args):
         logger=logger,
         profiler=True,
         max_epochs=configs["training"]["epochs"],
-        gpus=1 if torch.cuda.is_available() else None,
+        accelerator='ddp',
+        gpus=-1 if torch.cuda.is_available() else None,
         precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
         progress_bar_refresh_rate=0,
@@ -128,13 +142,15 @@ def main(args):
 
     # Initialize DataModule
     datamodule = PayneDataModule(
-        input_file=input_file,
+        input_path=input_path,
         labels_to_train_on=configs["training"]["labels"],
         train_fraction=configs["training"]["train_fraction"],
+        iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
         num_workers=0,
         pin_memory=False,
+        big_dataset=big_dataset,
     )
     datamodule.setup()
     datamodule.save_training_meta(meta_file)
