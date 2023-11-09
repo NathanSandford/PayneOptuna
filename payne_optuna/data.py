@@ -196,15 +196,15 @@ class SpectraHDF5BigDataset(Dataset):
         self.n_labels = n_labels_list[0]
         virtual_layout_spectra = h5py.VirtualLayout(
             shape=(self.n_spec, self.n_pix),
-            dtype=np.float
+            dtype=float
         )
         virtual_layout_labels = h5py.VirtualLayout(
             shape=(self.n_spec, self.n_labels),
-            dtype=np.float
+            dtype=float
         )
         virtual_layout_wavelength = h5py.VirtualLayout(
             shape=(self.n_pix,),
-            dtype=np.float
+            dtype=float
         )
         offset = 0
         for i in range(n_datasets):
