@@ -3,6 +3,7 @@ from pathlib import PosixPath
 import yaml
 import torch
 import pytorch_lightning as pl
+from torchmetrics.regression import MeanSquareError
 from . import radam
 
 
@@ -106,7 +107,7 @@ class LightningPaynePerceptron(pl.LightningModule):
         )
         self.lr = lr
         self.optimizer_name = optimizer
-        self.loss_fn = pl.metrics.regression.MeanSquaredError()
+        self.loss_fn = MeanSquareError()
 
         self.meta = None
         self.x_min = None
