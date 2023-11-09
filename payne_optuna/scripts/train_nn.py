@@ -94,7 +94,7 @@ def main(args):
         filename="{epoch:05d}-{val-loss:.2f}",
         monitor="val-loss",
         mode="min",
-        period=1,
+        every_n_epochs=1,
         verbose=True,
     )
     early_stopping_callback = EarlyStoppingCallback(

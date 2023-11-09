@@ -101,7 +101,7 @@ class Objective:
             filename="{epoch:05d}-{val-loss:.2f}",
             monitor="val-loss",
             mode="min",
-            period=1,
+            every_n_epochs=1,
             trial_number=trial.number,
             verbose=True,
         )
