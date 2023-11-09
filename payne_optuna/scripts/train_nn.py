@@ -136,6 +136,7 @@ def main(args):
         strategy='ddp',
         precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
+        enable_progress_bar=False,
         check_val_every_n_epoch=1,
         deterministic=True,
     )
