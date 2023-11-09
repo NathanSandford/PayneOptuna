@@ -124,12 +124,14 @@ def main(args):
     else:
         checkpoint = None
 
+    print(f"GPU is available: {torch.cuda.is_available()}")
     # Initialize Trainer
     trainer = pl.Trainer(
         default_root_dir=model_dir,
         logger=logger,
         profiler="advanced",
         max_epochs=configs["training"]["epochs"],
+        accelerator='gpu' if torch.cuda.is_available() else "cpu",
         strategy='ddp',
         precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
