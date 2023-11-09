@@ -122,7 +122,7 @@ class Objective:
         trainer = pl.Trainer(
             default_root_dir=self.model_dir,
             logger=logger,
-            profiler=False,
+            profiler=None,
             max_epochs=self.epochs,
             strategy='ddp',
             precision=self.precision,

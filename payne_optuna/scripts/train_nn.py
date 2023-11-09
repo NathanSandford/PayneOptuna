@@ -128,7 +128,7 @@ def main(args):
     trainer = pl.Trainer(
         default_root_dir=model_dir,
         logger=logger,
-        profiler=True,
+        profiler="advanced",
         max_epochs=configs["training"]["epochs"],
         strategy='ddp',
         precision=configs["training"]["precision"],
