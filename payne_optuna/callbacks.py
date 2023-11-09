@@ -151,7 +151,7 @@ class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
             monitor=monitor, mode=mode, patience=patience, verbose=verbose
         )
 
-    def on_train_epoch_end(self, trainer, pl_module, outputs):
+    def on_train_epoch_end(self, trainer, pl_module):
         pass
 
     def _run_early_stopping_check(self, trainer, pl_module):
