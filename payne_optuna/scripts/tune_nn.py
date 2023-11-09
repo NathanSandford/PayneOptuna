@@ -124,7 +124,7 @@ class Objective:
             logger=logger,
             profiler=False,
             max_epochs=self.epochs,
-            gpus=1 if torch.cuda.is_available() else None,
+            strategy='ddp',
             precision=self.precision,
             callbacks=[
                 metrics_callback,
