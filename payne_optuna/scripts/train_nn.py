@@ -135,7 +135,6 @@ def main(args):
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
         check_val_every_n_epoch=1,
         deterministic=True,
-        resume_from_checkpoint=checkpoint,
     )
 
     # Initialize DataModule
@@ -166,6 +165,6 @@ def main(args):
     )
 
     # Train Model
-    trainer.fit(model=model, datamodule=datamodule)
+    trainer.fit(model=model, datamodule=datamodule, ckpt_path=checkpoint)
 
     print("Training Complete!")
