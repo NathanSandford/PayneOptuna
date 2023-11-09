@@ -106,7 +106,7 @@ class LightningPaynePerceptron(pl.LightningModule):
         )
         self.lr = lr
         self.optimizer_name = optimizer
-        self.loss_fn = pl.metrics.regression.MeanAbsoluteError()
+        self.loss_fn = pl.metrics.regression.MeanSquaredError()
 
         self.meta = None
         self.x_min = None
