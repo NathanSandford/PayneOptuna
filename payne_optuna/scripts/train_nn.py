@@ -161,7 +161,7 @@ def main(args):
         iron_scale=configs["training"]["iron_scale"],
         batchsize=configs["training"]["batchsize"],
         dtype=dtype,
-        num_workers=0,
+        num_workers=configs["training"]["num_workers"],
         pin_memory=False,
         big_dataset=big_dataset,
     )
