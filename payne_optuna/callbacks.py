@@ -57,16 +57,46 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         )
         self.trial_number = trial_number
 
-    def _save_top_k_checkpoints(self, trainer, pl_module, metrics):
-        current = metrics.get(self.monitor)
-        epoch = metrics.get("epoch")
-        step = metrics.get("step")
-
+    #def _save_top_k_checkpoint(self, trainer, pl_module, metrics):
+    #    current = metrics.get(self.monitor)
+    #    epoch = metrics.get("epoch")
+    #    step = metrics.get("step")
+    #
+    #    if self.check_monitor_top_k(trainer, current):
+    #        self._update_best_and_save(
+    #            current, epoch, step, trainer, pl_module, metrics
+    #        )
+    #    elif self.verbose:
+    #        trial_txt = (
+    #            f"Trial {self.trial_number:d}, "
+    #            if self.trial_number is not None
+    #            else ""
+    #        )
+    #        pl.utilities.rank_zero_info(
+    #            f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in " +
+    #            f"top {self.save_top_k} (best: {self.best_model_score:0.2f})"
+    #        )
+    def _save_topk_checkpoint(self, trainer, monitor_candidates):
+        if self.save_top_k == 0:
+            return
+        if self.monitor is not None:
+            if self.monitor not in monitor_candidates:
+                m = (
+                    f"`ModelCheckpoint(monitor={self.monitor!r})` could not find the monitored key in the returned"
+                    f" metrics: {list(monitor_candidates)}."
+                    f" HINT: Did you call `log({self.monitor!r}, value)` in the `LightningModule`?"
+                )
+                if trainer.fit_loop.epoch_loop.val_loop._has_run:
+                    raise pl.utilities.exceptions.MisconfigurationException(m)
+                pl.utilities.rank_zero.warning_cache.warn(m)
+        current = monitor_candidates.get(self.monitor)
         if self.check_monitor_top_k(trainer, current):
             self._update_best_and_save(
-                current, epoch, step, trainer, pl_module, metrics
+                current, trainer, monitor_candidates
             )
         elif self.verbose:
+            epoch = monitor_candidates["epoch"]
+            step = monitor_candidates["step"]
             trial_txt = (
                 f"Trial {self.trial_number:d}, "
                 if self.trial_number is not None
@@ -80,11 +110,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
     def _update_best_and_save(
         self,
         current: torch.Tensor,
-        epoch: int,
-        step: int,
         trainer,
-        pl_module,
-        ckpt_name_metrics,
+        monitor_candidates
     ):
         k = len(self.best_k_models) + 1 if self.save_top_k == -1 else self.save_top_k
 
@@ -98,7 +125,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
                 current = torch.tensor(float('inf' if self.mode == "min" else '-inf'))
 
         filepath = self._get_metric_interpolated_filepath_name(
-            ckpt_name_metrics, epoch, step, trainer, del_filepath
+            monitor_candidates, trainer, del_filepath
         )
 
         # save the current score
@@ -118,6 +145,8 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         self.best_model_score = self.best_k_models[self.best_model_path]
 
         if self.verbose:
+            epoch = monitor_candidates["epoch"]
+            step = monitor_candidates["step"]
             trial_txt = (
                 f"Trial {self.trial_number:d}, "
                 if self.trial_number is not None
@@ -126,10 +155,10 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             pl.utilities.rank_zero_info(
                 f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} reached {current:0.2f}, saving model"
             )
-        self._save_model(filepath, trainer, pl_module)
+        self._save_checkpoint(trainer, filepath)
 
-        if del_filepath is not None and filepath != del_filepath:
-            self._del_model(del_filepath)
+        if del_filepath and self._should_remove_checkpoint(trainer, del_filepath, filepath):
+            self._remove_checkpoint(trainer, del_filepath)
 
 
 class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
