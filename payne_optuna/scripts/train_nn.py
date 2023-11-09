@@ -140,7 +140,7 @@ def main(args):
     trainer = pl.Trainer(
         default_root_dir=model_dir,
         logger=logger,
-        profiler=True,
+        profiler="advanced",
         max_epochs=configs["training"]["epochs"],
         accelerator='gpu' if torch.cuda.is_available() else "cpu",
         gpus=-1 if torch.cuda.is_available() else None,
