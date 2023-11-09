@@ -125,31 +125,31 @@ def main(args):
         checkpoint = None
 
     # Initialize Trainer
-    #trainer = pl.Trainer(
-    #    default_root_dir=model_dir,
-    #    logger=logger,
-    #    profiler="advanced",
-    #    max_epochs=configs["training"]["epochs"],
-    #    accelerator='gpu' if torch.cuda.is_available() else "cpu",
-    #    strategy='ddp',
-    #    precision=configs["training"]["precision"],
-    #    callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
-    #    check_val_every_n_epoch=1,
-    #    deterministic=True,
-    #)
     trainer = pl.Trainer(
         default_root_dir=model_dir,
         logger=logger,
         profiler="advanced",
         max_epochs=configs["training"]["epochs"],
         accelerator='gpu' if torch.cuda.is_available() else "cpu",
-        gpus=-1 if torch.cuda.is_available() else None,
         strategy='ddp',
         precision=configs["training"]["precision"],
         callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
         check_val_every_n_epoch=1,
         deterministic=True,
     )
+    #trainer = pl.Trainer(
+    #    default_root_dir=model_dir,
+    #    logger=logger,
+    #    profiler="advanced",
+    #    max_epochs=configs["training"]["epochs"],
+    #    accelerator='gpu' if torch.cuda.is_available() else "cpu",
+    #    gpus=-1 if torch.cuda.is_available() else None,
+    #    strategy='ddp',
+    #    precision=configs["training"]["precision"],
+    #    callbacks=[metrics_callback, checkpoint_callback, early_stopping_callback],
+    #    check_val_every_n_epoch=1,
+    #    deterministic=True,
+    #)
 
     # Initialize DataModule
     datamodule = PayneDataModule(
