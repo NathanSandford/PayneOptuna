@@ -32,7 +32,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
     :param str filename: Formatting for checkpoint file names
     :param str monitor: Metric to monitor for improvements. Most likely "val-loss" for the Payne.
     :param str mode: "min" or "max" depending on metric. Most likely "min" if monitor = "val-loss".
-    :param int period: Number of epochs between checkpoints. Default = 1.
+    :param int every_n_epochs: Number of epochs between checkpoints. Default = 1.
     :param Optional[int] trial_number: Trial number of model (i.e., when tuning w/ Optuna). Default = None.
     :param bool verbose: If true, prints updates after each validation epoch. Default = True.
     """
@@ -43,7 +43,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         filename: str,
         monitor: str,
         mode: str,
-        period: int = 1,
+        every_n_epochs: int = 1,
         trial_number: Optional[int] = None,
         verbose: bool = True,
     ):
@@ -52,7 +52,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             filename=filename,
             monitor=monitor,
             mode=mode,
-            period=period,
+            period=every_n_epochs,
             verbose=verbose,
         )
         self.trial_number = trial_number
