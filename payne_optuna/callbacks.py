@@ -57,25 +57,6 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
         )
         self.trial_number = trial_number
 
-    #def _save_top_k_checkpoint(self, trainer, pl_module, metrics):
-    #    current = metrics.get(self.monitor)
-    #    epoch = metrics.get("epoch")
-    #    step = metrics.get("step")
-    #
-    #    if self.check_monitor_top_k(trainer, current):
-    #        self._update_best_and_save(
-    #            current, epoch, step, trainer, pl_module, metrics
-    #        )
-    #    elif self.verbose:
-    #        trial_txt = (
-    #            f"Trial {self.trial_number:d}, "
-    #            if self.trial_number is not None
-    #            else ""
-    #        )
-    #        pl.utilities.rank_zero_info(
-    #            f"{trial_txt}Epoch {epoch:d}, step {step:d}: {self.monitor} ({current:.2f}) was not in " +
-    #            f"top {self.save_top_k} (best: {self.best_model_score:0.2f})"
-    #        )
     def _save_topk_checkpoint(self, trainer, monitor_candidates):
         if self.save_top_k == 0:
             return
