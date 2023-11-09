@@ -123,7 +123,7 @@ class LightningPaynePerceptron(pl.LightningModule):
         y = batch["spectrum"]
         output = self.forward(x)
         loss = self.loss_fn(output, y) * 1e4
-        self.log("train-loss", loss, on_step=False, on_epoch=True)
+        self.log("train-loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         return loss  # {"loss": loss}
 
     def validation_step(self, batch, batch_nb):
@@ -131,7 +131,7 @@ class LightningPaynePerceptron(pl.LightningModule):
         y = batch["spectrum"]
         output = self.forward(x)
         loss = self.loss_fn(output, y) * 1e4
-        self.log("val-loss", loss, on_step=False, on_epoch=True)
+        self.log("val-loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         return loss
 
     # def validation_epoch_end(self, outputs):
