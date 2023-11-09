@@ -52,7 +52,7 @@ class CheckpointCallback(pl.callbacks.ModelCheckpoint):
             filename=filename,
             monitor=monitor,
             mode=mode,
-            period=every_n_epochs,
+            every_n_epochs=every_n_epochs,
             verbose=verbose,
         )
         self.trial_number = trial_number
