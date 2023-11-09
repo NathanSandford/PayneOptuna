@@ -69,6 +69,8 @@ def main(args):
     #torch.set_default_tensor_type(dtype)
     print(f'Default tensor type: {dtype}')
 
+    torch.set_float32_matmul_precision('medium')
+
     # Load Configs & Set Paths
     with open(args.config_file) as file:
         configs = yaml.load(file, Loader=yaml.FullLoader)
