@@ -132,7 +132,6 @@ class Objective:
                 early_stopping_callback,
                 pruning_callback,
             ],
-            progress_bar_refresh_rate=0,
             check_val_every_n_epoch=1,
             deterministic=True,
         )
