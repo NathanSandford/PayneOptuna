@@ -2,6 +2,7 @@ from typing import List
 import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.ndimage import percentile_filter
+from scipy.stats import uniform, norm, truncnorm
 import torch
 from .utils import ensure_tensor, j_nu, thin_plate_spline
 import matplotlib.pyplot as plt
@@ -19,11 +20,15 @@ class UniformLogPrior:
         self.lower_bound = ensure_tensor(lower_bound)
         self.upper_bound = ensure_tensor(upper_bound)
         self.out_of_bounds_val = ensure_tensor(out_of_bounds_val)
+        self.dist = uniform(loc=self.lower_bound, scale=self.upper_bound-self.lower_bound)
 
     def __call__(self, x):
         log_prior = torch.zeros_like(x)
         log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
         return log_prior
+
+    def sample(self, n_samples):
+        return self.dist.rvs(size=n_samples)
 
 
 class GaussianLogPrior:
@@ -31,9 +36,13 @@ class GaussianLogPrior:
         self.label = label
         self.mu = ensure_tensor(mu)
         self.sigma = ensure_tensor(sigma)
+        self.dist = norm(loc=self.mu, scale=self.sigma)
 
     def __call__(self, x):
         return torch.log(1.0 / (np.sqrt(2 * np.pi) * self.sigma)) - 0.5 * (x - self.mu) ** 2 / self.sigma ** 2
+
+    def sample(self, n_samples):
+        return self.dist.rvs(size=n_samples)
 
 
 class FlatLogPrior:
@@ -43,11 +52,42 @@ class FlatLogPrior:
     def __call__(self, x):
         return torch.zeros_like(x)
 
+    def sample(self, n_samples):
+        raise NotImplementedError
+
+
+class DeltaLogPrior:
+    def __init__(self, label, d, tolerance=1e-4, out_of_bounds_val=-1e10):
+        self.label = label
+        self.d = ensure_tensor(d)
+        self.tolerance = ensure_tensor(tolerance)
+        self.lower_bound = self.d - self.tolerance
+        self.upper_bound = self.d + self.tolerance
+        self.out_of_bounds_val = ensure_tensor(out_of_bounds_val)
+        self.dist = None
+
+    def __call__(self, x):
+        log_prior = torch.zeros_like(x)
+        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
+        return log_prior
+
+    def sample(self, n_samples):
+        return self.d * torch.ones(n_samples)
+
 
 def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
     tot_vars = pred_errs ** 2 + target_errs ** 2
     loglike = -0.5 * (
-            torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
+            torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (tot_vars)
+    )
+    mask = torch.isfinite(loglike)
+    loglike[..., ~mask] = 0  # Cludgy masking
+    return torch.sum(loglike, axis=[1, 2])
+
+def gaussian_log_likelihood_out(pred, target, pred_errs, target_errs, outlier_err_scaling):  # , mask):
+    tot_vars = outlier_err_scaling**2 * (pred_errs ** 2 + target_errs ** 2)
+    loglike = -0.5 * (
+            torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (tot_vars)
     )
     mask = torch.isfinite(loglike)
     loglike[..., ~mask] = 0  # Cludgy masking
@@ -57,7 +97,7 @@ def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
 def gaussian_log_likelihood_multi(pred, target, pred_errs, target_errs):
     tot_vars = pred_errs ** 2 + target_errs ** 2
     loglike = -0.5 * (
-        torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (2 * tot_vars)
+        torch.log(2 * np.pi * tot_vars) + (target - pred) ** 2 / (tot_vars)
     )
     return torch.sum(loglike, axis=[1, 2, 3])
 
@@ -1956,24 +1996,34 @@ class PayneOptimizer:
         scaled_vmicro = (unscaled_vmicro - vmicro_min) / (vmicro_max - vmicro_min) - 0.5
         return scaled_vmicro
 
-    def neg_log_posterior(self, pred, target, pred_errs, target_errs):
-        log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)
+    def log_priors(self, log_likelihood):
         log_priors = torch.zeros_like(log_likelihood)
         unscaled_stellar_labels = self.emulator.unscale_stellar_labels(self.stellar_labels)
-        fe_idx = self.emulator.labels.index('Fe')
+        unscaled_stellar_labels = unscaled_stellar_labels - self.fe_scaler[0] * unscaled_stellar_labels[:, self.fe_idx]
         for i, label in enumerate(self.emulator.labels):
-            if label in ['Teff', 'logg', 'v_micro', 'Fe']:
-                log_priors += self.priors['stellar_labels'][i](unscaled_stellar_labels[:, i])
-            else:
-                log_priors += self.priors['stellar_labels'][i](
-                    unscaled_stellar_labels[:, i] - unscaled_stellar_labels[:, fe_idx]
-                )
+            log_priors += self.priors['stellar_labels'][label](unscaled_stellar_labels[:, i])
         if self.log_vmacro is not None:
             log_priors += self.priors['log_vmacro'](self.log_vmacro[:, 0])
         if self.log_vsini is not None:
             log_priors += self.priors['log_vsini'](self.log_vsini[:, 0])
         if self.inst_res is not None:
             log_priors += self.priors['inst_res'](self.inst_res[:, 0])
+        return log_priors
+
+    def neg_log_posterior(self, pred, target, pred_errs, target_errs):
+        log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)
+        log_priors = self.log_priors(log_likelihood)
+        return -1 * (log_likelihood + log_priors)
+
+    def neg_log_posterior_mixture(self, pred, target, pred_errs, target_errs, out_err_scale=50):
+        log_likelihood_in = torch.log(1 - self.f_out) + gaussian_log_likelihood(
+            pred, target, pred_errs, target_errs
+        )
+        log_likelihood_out = torch.log(self.f_out) + gaussian_log_likelihood(
+            pred, target, out_err_scale * pred_errs, out_err_scale * target_errs
+        )
+        log_likelihood = torch.logaddexp(log_likelihood_in, log_likelihood_out)
+        log_priors = self.log_priors(log_likelihood)
         return -1 * (log_likelihood + log_priors)
 
     def forward(self):
@@ -2053,10 +2103,14 @@ class PayneOptimizer:
         ]
         self.fe_scaler = torch.zeros(2, self.emulator.n_stellar_labels)
         self.fe_scaler[:, self.fe_scaled_idx] = 1
+        #self.stellar_label_bounds = torch.Tensor([
+        #    [prior.lower_bound, prior.upper_bound]
+        #    if type(prior) == UniformLogPrior
+        #    else [-np.inf, np.inf]
+        #    for prior in self.priors['stellar_labels']
+        #]).T
         self.stellar_label_bounds = torch.Tensor([
             [prior.lower_bound, prior.upper_bound]
-            if type(prior) == UniformLogPrior
-            else [-np.inf, np.inf]
             for prior in self.priors['stellar_labels']
         ]).T
         self.use_holtzman2015 = use_holtzman2015
@@ -2183,7 +2237,7 @@ class PayneOptimizer:
                 scaled_stellar_bounds = self.emulator.scale_stellar_labels(
                     self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
                 )
-                for i in range(self.n_stellar_labels):
+                for i, label in enumerate(self.emulator.labels):
                     self.stellar_labels[:, i].clamp_(
                         min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
                         max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
@@ -2197,13 +2251,21 @@ class PayneOptimizer:
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
-                    self.log_vmacro.clamp_(min=-1.0, max=1.3)
+                    #self.log_vmacro.clamp_(min=-1.0, max=1.3)
+                    self.log_vmacro.clamp_(
+                        min=self.priors['log_vmacro'].lower_bound,
+                        max=self.priors['log_vmacro'].upper_bound,
+                    )
                 if self.log_vsini is not None:
-                    self.log_vsini.clamp_(min=-1.0, max=2.5)
+                    #self.log_vsini.clamp_(min=-1.0, max=2.5)
+                    self.log_vsini.clamp_(
+                        min=self.priors['log_vsini'].lower_bound,
+                        max=self.priors['log_vsini'].upper_bound,
+                    )
                 if self.inst_res is not None:
                     self.inst_res.clamp_(
-                        min=100,
-                        max=self.emulator.model_res if self.emulator.model_res is not None else np.inf
+                        min=self.priors['inst_res'].lower_bound,
+                        max=self.priors['inst_res'].upper_bound,
                     )
 
             # Check Convergence
