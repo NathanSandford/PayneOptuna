@@ -164,49 +164,49 @@ class EarlyStoppingCallback(pl.callbacks.EarlyStopping):
     def on_train_epoch_end(self, trainer, pl_module):
         pass
 
-    def _run_early_stopping_check(self, trainer, pl_module):
-        """
-        Checks whether the early stopping condition is met
-        and if so tells the trainer to stop the training.
-        """
-        logs = trainer.callback_metrics
-
-        if (
-            trainer.fast_dev_run  # disable early_stopping with fast_dev_run
-            or not self._validate_condition_metric(
-                logs
-            )  # short circuit if metric not present
-        ):
-            return  # short circuit if metric not present
-
-        current = logs.get(self.monitor)
-
-        # when in dev debugging
-        trainer.dev_debugger.track_early_stopping_history(self, current)
-
-        #if current is not None:
-        #    if isinstance(current, pl.metrics.metric.Metric):
-        #        current = current.compute()
-        #    elif isinstance(current, numbers.Number):
-        #        current = torch.tensor(
-        #            current, device=pl_module.device, dtype=torch.float
-        #        )
-        #
-        #if trainer.use_tpu and pl.utilities.TPU_AVAILABLE:
-        #    current = current.cpu()
-
-        if self.monitor_op(current - self.min_delta, self.best_score):
-            self.best_score = current
-            self.wait_count = 0
-        else:
-            self.wait_count += 1
-            if self.wait_count >= self.patience:
-                print("Early Stopping!")
-                self.stopped_epoch = trainer.current_epoch
-                trainer.should_stop = True
-
-        # stop every ddp process if any world process decides to stop
-        trainer.should_stop = trainer.training_type_plugin.reduce_boolean_decision(trainer.should_stop)
+    #def _run_early_stopping_check(self, trainer, pl_module):
+    #    """
+    #    Checks whether the early stopping condition is met
+    #    and if so tells the trainer to stop the training.
+    #    """
+    #    logs = trainer.callback_metrics
+    #
+    #    if (
+    #        trainer.fast_dev_run  # disable early_stopping with fast_dev_run
+    #        or not self._validate_condition_metric(
+    #            logs
+    #        )  # short circuit if metric not present
+    #    ):
+    #        return  # short circuit if metric not present
+    #
+    #    current = logs.get(self.monitor)
+    #
+    #    # when in dev debugging
+    #    trainer.dev_debugger.track_early_stopping_history(self, current)
+    #
+    #    #if current is not None:
+    #    #    if isinstance(current, pl.metrics.metric.Metric):
+    #    #        current = current.compute()
+    #    #    elif isinstance(current, numbers.Number):
+    #    #        current = torch.tensor(
+    #    #            current, device=pl_module.device, dtype=torch.float
+    #    #        )
+    #    #
+    #    #if trainer.use_tpu and pl.utilities.TPU_AVAILABLE:
+    #    #    current = current.cpu()
+    #
+    #    if self.monitor_op(current - self.min_delta, self.best_score):
+    #        self.best_score = current
+    #        self.wait_count = 0
+    #    else:
+    #        self.wait_count += 1
+    #        if self.wait_count >= self.patience:
+    #            print("Early Stopping!")
+    #            self.stopped_epoch = trainer.current_epoch
+    #            trainer.should_stop = True
+    #
+    #    # stop every ddp process if any world process decides to stop
+    #    trainer.should_stop = trainer.training_type_plugin.reduce_boolean_decision(trainer.should_stop)
 
 
 class PruningCallback(pl.callbacks.early_stopping.EarlyStopping):
