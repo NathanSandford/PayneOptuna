@@ -36,6 +36,8 @@ class GaussianLogPrior:
         self.label = label
         self.mu = ensure_tensor(mu)
         self.sigma = ensure_tensor(sigma)
+        self.lower_bound = ensure_tensor(-np.inf)
+        self.upper_bound = ensure_tensor(np.inf)
         self.dist = norm(loc=self.mu, scale=self.sigma)
 
     def __call__(self, x):
@@ -48,6 +50,8 @@ class GaussianLogPrior:
 class FlatLogPrior:
     def __init__(self, label):
         self.label = label
+        self.lower_bound = ensure_tensor(-np.inf)
+        self.upper_bound = ensure_tensor(np.inf)
 
     def __call__(self, x):
         return torch.zeros_like(x)
@@ -2111,7 +2115,7 @@ class PayneOptimizer:
         #]).T
         self.stellar_label_bounds = torch.Tensor([
             [prior.lower_bound, prior.upper_bound]
-            for prior in self.priors['stellar_labels']
+            for label, prior in self.priors['stellar_labels'].items()
         ]).T
         self.use_holtzman2015 = use_holtzman2015
         self.use_gaia_phot = use_gaia_phot
