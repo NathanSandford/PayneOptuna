@@ -1732,8 +1732,8 @@ class PayneOptimizer:
             log_vmacro0=None,
             log_vsini0=None,
             inst_res0=None,
-            rv_range=(-3, 3),
-            n_rv=301,
+            rv_range=(-5, 5),
+            n_rv=501,
             plot=False,
     ):
         self.stellar_labels = torch.zeros(1, self.n_stellar_labels)
