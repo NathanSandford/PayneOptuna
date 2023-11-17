@@ -2,9 +2,9 @@ from typing import List
 import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.ndimage import percentile_filter
-from scipy.stats import uniform, norm, truncnorm
 import torch
 from .utils import ensure_tensor, j_nu, thin_plate_spline
+from .misc.priors import GaussianLogPrior, UniformLogPrior, DeltaLogPrior
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
@@ -12,71 +12,6 @@ from matplotlib.gridspec import GridSpec
 def mse_loss(pred, target, pred_errs, target_errs):
     total_errs = torch.sqrt(pred_errs ** 2 + target_errs ** 2)
     return torch.mean(((pred - target) / total_errs) ** 2, axis=[1, 2])
-
-
-class UniformLogPrior:
-    def __init__(self, label, lower_bound, upper_bound, out_of_bounds_val=-1e10):
-        self.label = label
-        self.lower_bound = ensure_tensor(lower_bound)
-        self.upper_bound = ensure_tensor(upper_bound)
-        self.out_of_bounds_val = ensure_tensor(out_of_bounds_val)
-        self.dist = uniform(loc=self.lower_bound, scale=self.upper_bound-self.lower_bound)
-
-    def __call__(self, x):
-        log_prior = torch.zeros_like(x)
-        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
-        return log_prior
-
-    def sample(self, n_samples):
-        return self.dist.rvs(size=n_samples)
-
-
-class GaussianLogPrior:
-    def __init__(self, label, mu, sigma):
-        self.label = label
-        self.mu = ensure_tensor(mu)
-        self.sigma = ensure_tensor(sigma)
-        self.lower_bound = ensure_tensor(-np.inf)
-        self.upper_bound = ensure_tensor(np.inf)
-        self.dist = norm(loc=self.mu, scale=self.sigma)
-
-    def __call__(self, x):
-        return torch.log(1.0 / (np.sqrt(2 * np.pi) * self.sigma)) - 0.5 * (x - self.mu) ** 2 / self.sigma ** 2
-
-    def sample(self, n_samples):
-        return self.dist.rvs(size=n_samples)
-
-
-class FlatLogPrior:
-    def __init__(self, label):
-        self.label = label
-        self.lower_bound = ensure_tensor(-np.inf)
-        self.upper_bound = ensure_tensor(np.inf)
-
-    def __call__(self, x):
-        return torch.zeros_like(x)
-
-    def sample(self, n_samples):
-        raise NotImplementedError
-
-
-class DeltaLogPrior:
-    def __init__(self, label, d, tolerance=1e-4, out_of_bounds_val=-1e10):
-        self.label = label
-        self.d = ensure_tensor(d)
-        self.tolerance = ensure_tensor(tolerance)
-        self.lower_bound = self.d - self.tolerance
-        self.upper_bound = self.d + self.tolerance
-        self.out_of_bounds_val = ensure_tensor(out_of_bounds_val)
-        self.dist = None
-
-    def __call__(self, x):
-        log_prior = torch.zeros_like(x)
-        log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
-        return log_prior
-
-    def sample(self, n_samples):
-        return self.d * torch.ones(n_samples)
 
 
 def gaussian_log_likelihood(pred, target, pred_errs, target_errs):  # , mask):
@@ -1878,6 +1813,8 @@ class PayneOptimizer:
                         self.priors[label].mu,
                         self.priors[label].sigma,
                     )
+                elif type(self.priors[label]) == DeltaLogPrior:
+                    x0 = torch.ones(n_spec) * self.priors[label].d
                 else:
                     x0 = torch.zeros(n_spec).uniform_(
                         self.priors[label].lower_bound,
