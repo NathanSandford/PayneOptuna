@@ -3,7 +3,7 @@ import yaml
 import numpy as np
 import torch
 from payne_optuna.model import LightningPaynePerceptron
-from payne_optuna.fitting import UniformLogPrior, GaussianLogPrior, FlatLogPrior
+from payne_optuna.misc.priors import UniformLogPrior, GaussianLogPrior, FlatLogPrior
 
 def load_model(config_file, verbose=True):
     # Load Configs & Set Paths
