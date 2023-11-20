@@ -1,6 +1,7 @@
+import numpy as np
 import torch
 from scipy.stats import uniform, norm, truncnorm
-from .utils import ensure_tensor
+from payne_optuna.misc.utils import ensure_tensor
 
 
 class UniformLogPrior:
