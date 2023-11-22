@@ -2197,7 +2197,7 @@ class PayneOptimizer:
                 raise RuntimeError('NaN value(s) suggested for stellar_labels')
             if torch.isnan(self.rv).any():
                 raise RuntimeError('NaN value(s) suggested for rv')
-            if torch.isnan(self.cont_coeffs).any():
+            if torch.isnan(torch.stack(self.cont_coeffs)).any():
                 raise RuntimeError('NaN value(s) suggested for cont_coeffs')
 
             # Set Bounds
