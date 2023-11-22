@@ -2092,7 +2092,7 @@ class PayneOptimizer:
         optimizer, scheduler = self.init_optimizer_scheduler()
 
         # Initialize Convergence Criteria
-        epoch = 0
+        self.epoch = 0
         self.loss = ensure_tensor(np.inf)
         delta_loss = ensure_tensor(np.inf)
         delta_stellar_labels = ensure_tensor(np.inf)
@@ -2117,9 +2117,9 @@ class PayneOptimizer:
         )
 
         while (
-                (epoch < min_epochs)
+                (self.epoch < min_epochs)
                 or (
-                        (epoch < max_epochs)
+                        (self.epoch < max_epochs)
                         and (
                                 (delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'])
                                 or (delta_frac_weighted_cont.abs().max() > self.tolerances['d_cont'])
@@ -2249,7 +2249,7 @@ class PayneOptimizer:
                                                                               self.history['log_vsini'][-1]
             delta_f_out = ensure_tensor(0) if self.f_out is None else self.f_out - self.history['f_out'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
-            if epoch % 20 == 0:
+            if self.epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
                     torch.stack(self.cont_coeffs),
                     self.obs_wave_
@@ -2258,8 +2258,8 @@ class PayneOptimizer:
                 delta_frac_weighted_cont = delta_cont / cont * self.obs_snr
                 last_cont = cont
                 if verbose:
-                    print(f"Epoch: {epoch}, Current Loss: {self.loss:.6f}")
-            if (plot_fit_every is not None) and (epoch % plot_fit_every == 0):
+                    print(f"Epoch: {self.epoch}, Current Loss: {self.loss:.6f}")
+            if (plot_fit_every is not None) and (self.epoch % plot_fit_every == 0):
                 tot_errs = torch.sqrt(mod_errs ** 2 + self.obs_errs ** 2)
                 mse = ((mod_flux[0] - self.obs_flux) / tot_errs) ** 2
                 mask = torch.isfinite(tot_errs)
@@ -2277,7 +2277,7 @@ class PayneOptimizer:
                     ax1.tick_params('x', labelsize=0)
                     plt.show()
                     plt.close('all')
-            epoch += 1
+            self.epoch += 1
 
         # Recover Best Epoch
         self.stellar_labels = self.history['stellar_labels'][np.argmin(self.history['loss'])]
@@ -2293,7 +2293,7 @@ class PayneOptimizer:
 
         print(f"Best Epoch: {np.argmin(self.history['loss'])}, Best Loss: {self.loss:.6f}")
 
-        if not epoch < max_epochs and verbose:
+        if not self.epoch < max_epochs and verbose:
             print('max_epochs reached')
         if not delta_stellar_labels.abs().max() > self.tolerances['d_stellar_labels'] and verbose:
             print('d_stellar_labels tolerance reached')
