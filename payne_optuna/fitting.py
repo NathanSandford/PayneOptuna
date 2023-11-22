@@ -2181,7 +2181,10 @@ class PayneOptimizer:
                 self.history['log_vsini'].append(None)
             else:
                 self.history['log_vsini'].append(torch.clone(self.log_vsini))
-            self.history['f_out'].append(torch.clone(self.f_out))
+            if self.f_out is None:
+                self.history['f_out'].append(None)
+            else:
+                self.history['f_out'].append(torch.clone(self.f_out))
             self.history['cont_coeffs'].append(torch.clone(torch.stack(self.cont_coeffs)).detach())
             self.history['loss'].append(self.loss)
 
@@ -2192,6 +2195,10 @@ class PayneOptimizer:
             scheduler.step()
             if torch.isnan(self.stellar_labels).any():
                 raise RuntimeError('NaN value(s) suggested for stellar_labels')
+            if torch.isnan(self.rv).any():
+                raise RuntimeError('NaN value(s) suggested for rv')
+            if torch.isnan(self.cont_coeffs).any():
+                raise RuntimeError('NaN value(s) suggested for cont_coeffs')
 
             # Set Bounds
             with torch.no_grad():
