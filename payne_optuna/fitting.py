@@ -1601,9 +1601,9 @@ class PayneOptimizer:
         else:
             if self.params['f_out'] == 'f_out':
                 self.f_out = self.init_params['f_out'].requires_grad_() if self.init_params[
-                                                                                        'f_out'] is not None else 0
+                                                                                        'f_out'] is not None else None
             else:
-                self.f_out = self.init_params['f_out'] if self.init_params['f_out'] is not None else 0
+                self.f_out = self.init_params['f_out'] if self.init_params['f_out'] is not None else None
         if self.init_params['inst_res'] == 'prefit':
             if self.params['inst_res'] == 'fit':
                 self.inst_res = self.prefit_inst_res(plot=plot_prefits).requires_grad_()
@@ -2007,7 +2007,7 @@ class PayneOptimizer:
                 vsini='const',
                 inst_res='const',
                 cont_coeffs='fit',
-                f_out='fit',
+                f_out='const',
             ),
             init_params=dict(
                 stellar_labels=torch.zeros(1, 12),
@@ -2016,7 +2016,7 @@ class PayneOptimizer:
                 vsini=None,
                 inst_res=None,
                 cont_coeffs='prefit',
-                f_out=1e-3,
+                f_out=None,
             ),
             priors=None,
             min_epochs=1000,
@@ -2233,10 +2233,11 @@ class PayneOptimizer:
                         min=self.priors['inst_res'].lower_bound,
                         max=self.priors['inst_res'].upper_bound,
                     )
-                self.f_out.clamp_(
-                    min=self.priors['f_out'].lower_bound,
-                    max=self.priors['f_out'].upper_bound,
-                )
+                if self.f_out is not None:
+                    self.f_out.clamp_(
+                        min=self.priors['f_out'].lower_bound,
+                        max=self.priors['f_out'].upper_bound,
+                    )
 
             # Check Convergence
             delta_stellar_labels = self.stellar_labels - self.history['stellar_labels'][-1]
@@ -2246,7 +2247,7 @@ class PayneOptimizer:
             delta_inst_res = ensure_tensor(0) if self.inst_res is None else self.inst_res - self.history['inst_res'][-1]
             delta_log_vsini = ensure_tensor(0) if self.log_vsini is None else self.log_vsini - \
                                                                               self.history['log_vsini'][-1]
-            delta_f_out = self.f_out - self.history['f_out'][-1]
+            delta_f_out = ensure_tensor(0) if self.f_out is None else self.f_out - self.history['f_out'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
             if epoch % 20 == 0:
                 cont = self.emulator.calc_cont(
