@@ -1697,6 +1697,14 @@ class PayneOptimizer:
                 pred_errs=torch.zeros_like(mod_flux),
                 target_errs=self.obs_errs,
             )
+        elif self.loss_fn == 'neg_log_posterior_mixutre':
+            loss0 = self.neg_log_posterior(
+                pred=mod_flux * self.obs_blaz,
+                target=self.obs_flux,
+                pred_errs=torch.zeros_like(mod_flux),
+                target_errs=self.obs_errs,
+                f_out=0,
+            )
         else:
             loss0 = self.loss_fn(
                 pred=mod_flux * self.obs_blaz,
