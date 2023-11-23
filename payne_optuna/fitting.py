@@ -6,7 +6,7 @@ import torch
 from torch.nested import nested_tensor
 from torchquad import Simpson
 from torchaudio.functional import fftconvolve
-from .utils import ensure_tensor, j_nu, thin_plate_spline, pad_array, unpad_array
+from .utils import ensure_tensor, j_nu, thin_plate_spline, pad_array, unpad_array, vmacro_kernel
 from .misc.priors import GaussianLogPrior, UniformLogPrior, DeltaLogPrior
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -975,7 +975,7 @@ class PayneOrderEmulator(PayneEmulator):
         kern_wave = dlambda + eff_wave.unsqueeze(1)
         Zr = vmacro_rad_c * eff_wave
         Zt = vmacro_tan_c * eff_wave
-        kernel = self.vmacro_kernel(dlambda, Zr, Zt, integrator=self.vmacro_integrator, Ar=Ar, At=At)
+        kernel = vmacro_kernel(dlambda, Zr, Zt, integrator=self.vmacro_integrator, Ar=Ar, At=At)
 
         # Convolve Spectra
         flux_ = pad_array(flux, n_pix_kern_max, 1)
