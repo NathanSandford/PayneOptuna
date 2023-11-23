@@ -3,7 +3,10 @@ import numpy as np
 from numpy.polynomial import Polynomial
 from scipy.ndimage import percentile_filter
 import torch
-from .utils import ensure_tensor, j_nu, thin_plate_spline
+from torch.nested import nested_tensor
+from torchquad import Simpson
+from torchaudio.functional import fftconvolve
+from .utils import ensure_tensor, j_nu, thin_plate_spline, pad_array, unpad_array
 from .misc.priors import GaussianLogPrior, UniformLogPrior, DeltaLogPrior
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -850,7 +853,7 @@ class PayneOrderEmulator(PayneEmulator):
 
         # Stitch Observation Orders Together
         if obs_wave is not None:
-            self.n_obs_ord = len(obs['wave'])
+            self.n_obs_ord = len(obs_wave)
             self.ragged_obs = len(np.unique([wave.shape[0] for wave in obs_wave])) > 1
             if self.ragged_obs:
                 self.obs_wave_ragged = nested_tensor(
@@ -900,7 +903,7 @@ class PayneOrderEmulator(PayneEmulator):
         self.c_flat[0] = 1.0
 
     def set_obs_wave(self, obs_wave):
-        self.n_obs_ord = len(obs['wave'])
+        self.n_obs_ord = len(obs_wave)
         self.ragged_obs = len(np.unique([wave.shape[0] for wave in obs_wave])) > 1
         if self.ragged_obs:
             self.obs_wave_ragged = nested_tensor(
@@ -972,7 +975,7 @@ class PayneOrderEmulator(PayneEmulator):
         kern_wave = dlambda + eff_wave.unsqueeze(1)
         Zr = vmacro_rad_c * eff_wave
         Zt = vmacro_tan_c * eff_wave
-        kernel = vmacro_kernel(dlambda, Zr, Zt, integrator=self.vmacro_integrator, Ar=Ar, At=At)
+        kernel = self.vmacro_kernel(dlambda, Zr, Zt, integrator=self.vmacro_integrator, Ar=Ar, At=At)
 
         # Convolve Spectra
         flux_ = pad_array(flux, n_pix_kern_max, 1)
