@@ -1887,7 +1887,7 @@ class PayneOptimizer:
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
             rv=self.rv * torch.ones(n_spec, 1),
-            cont_coeffs=self.cont_coeffs,
+            cont_coeffs=torch.stack(self.cont_coeffs),
             vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
             vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
             inst_res=self.inst_res,
