@@ -121,3 +121,54 @@ def pad_array(array, pad_size, pad_value):
 
 def unpad_array(array, pad_size):
     return array[..., pad_size.to(int):-pad_size.to(int)]
+
+
+def vmacro_integrand(u):
+    return torch.exp(-1 / u ** 2)
+
+
+def vmacro_kernel(dlambda, Zr, Zt, integrator, Ar=1, At=1):
+    if Ar == At:
+        dlambda[dlambda == 0] = 1e-8
+        factor = (
+            2 * Ar * dlambda.unsqueeze(0) * torch.pi**(-1/2) * Zr.unsqueeze(2)**-2 \
+            + 2 * At * dlambda.unsqueeze(0) * torch.pi**(-1/2) * Zt.unsqueeze(2)**-2
+        )
+        upper = Zr.unsqueeze(2) / dlambda.unsqueeze(0)
+        lower = torch.zeros_like(upper)
+        results = torch.zeros_like(factor)
+        for i in range(results.shape[0]):
+            for j in range(results.shape[1]):
+                for k in range(results.shape[2]):
+                    results[i,j,k] = integrator(
+                        vmacro_integrand,
+                        integration_domain=torch.Tensor([[lower[i,j,k], upper[i,j,k]]])
+                    )
+        kernel = results * factor
+    else:
+        factor_r = (
+            2 * Ar * dlambda.unsqueeze(0) * torch.pi**(-1/2) * Zr.unsqueeze(2)**-2
+        )
+        factor_t = (
+            2 * At * dlambda.unsqueeze(0) * torch.pi**(-1/2) * Zt.unsqueeze(2)**-2
+        )
+        results_r = torch.zeros_like(factor_r)
+        results_t = torch.zeros_like(factor_t)
+        upper_r = Zr.unsqueeze(2) / dlambda.unsqueeze(0)
+        upper_t = Zt.unsqueeze(2) / dlambda.unsqueeze(0)
+        lower_r = lower_r = torch.zeros_like(upper_r)
+        for i in range(results.shape[0]):
+            for j in range(results.shape[1]):
+                for k in range(results.shape[2]):
+                    results_r[i,j,k] = integrator(
+                        vmacro_integrand,
+                        integration_domain=torch.Tensor([[lower_r[i,j,k], upper_r[i,j,k]]])
+                    )
+                    results_t[i,j,k] = integrator(
+                        vmacro_integrand,
+                        integration_domain=torch.Tensor([[lower_t[i,j,k], upper_t[i,j,k]]])
+                    )
+        kernel = results_r * factor_r + results_t * factor_t
+    kernel /= torch.trapz(kernel, dlambda.unsqueeze(0)).unsqueeze(2)
+    kernel = kernel[:, :, torch.sum(kernel > 0, axis=(0,1)) > 0]
+    return kernel
