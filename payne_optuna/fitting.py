@@ -784,226 +784,297 @@ class PayneOrderEmulator(PayneEmulator):
             obs_blaz=None,
             model_res=None,
             include_model_errs=True,
-            vmacro_method='iso_fft',
     ):
         super(PayneEmulator, self).__init__()
         self.models = models
-        self.n_models = len(self.models)
+        self.n_models = self.n_mod_ord = len(self.models)
         self.include_model_errs = include_model_errs
-        self.mod_wave = torch.vstack([ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models])
-        if self.include_model_errs:
-            self.mod_errs = torch.vstack([ensure_tensor(model.mod_errs) for model in self.models])
-        else:
-            self.mod_errs = None
+
+        # Define Model Inputs & Scalings
         self.model_res = model_res
         self.labels = self.models[0].labels
         self.stellar_labels_min = ensure_tensor(list(self.models[0].x_min.values()))
         self.stellar_labels_max = ensure_tensor(list(self.models[0].x_max.values()))
         self.n_stellar_labels = self.models[0].input_dim
-
-        self.vmacro_method = vmacro_method
-        if vmacro_method == 'iso':
-            self.vmacro_broaden = self.vmacro_iso_broaden
-        elif vmacro_method == 'iso_fft':
-            self.vmacro_broaden = self.vmacro_iso_broaden_fft
-        elif vmacro_method == 'rt_fft':
-            self.vmacro_broaden = self.vmacro_rt_broaden_fft
-        else:
-            raise ValueError("vmacro_method must be one of 'iso', 'iso_fft', or 'rt_fft'")
-
         self.rv_scale = rv_scale
         self.cont_deg = cont_deg
         self.n_cont_coeffs = self.cont_deg + 1
         self.cont_wave_norm_range = cont_wave_norm_range
 
-        if obs_wave is not None:
-            self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
-        else:
-            self.obs_wave = ensure_tensor(self.mod_wave.view(1, -1), precision=torch.float64)
-        scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
-        self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
-        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
+        # Set Model Broadening Methods
+        self.vmacro_integrator = Simpson().get_jit_compiled_integrate(
+            dim=1, N=1001, backend="torch"
+        )
+        self.vmacro_broaden = self.VmacroRTBroad
+        self.rot_broaden = self.RotBroadApprox
+        self.inst_broaden = None
 
-        if obs_blaz is not None:
-            self.obs_blaz = ensure_tensor(obs_blaz)
+        # Stitch Model Orders Together
+        self.ragged_mods = len(np.unique([model.wavelength.shape[0] for model in models])) > 1
+        if self.ragged_mods:
+            self.mod_wave_ragged = nested_tensor(
+                [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]
+            )
+            self.n_mod_pix = ensure_tensor([self.mod_wave_ragged[i].shape[0] for i in range(self.n_mod_ord)],
+                                           precision=int)
+            self.n_mod_pad = torch.max(self.n_mod_pix) - self.n_mod_pix
+            print(
+                f"Model orders do not have the same lengths ({', '.join([str(n_pix.item()) for n_pix in self.n_mod_pix])}); "
+                f"padding all to n_pix = {torch.max(self.n_mod_pix)}")
+            self.mod_wave = self.mod_wave_ragged.to_padded_tensor(padding=0)
+            for i in range(self.n_mod_ord):
+                if self.n_mod_pad[i] > 0:
+                    dx = torch.mean(torch.diff(self.mod_wave_ragged[i]))
+                    self.mod_wave[i, -self.n_mod_pad[i]:] = torch.linspace(
+                        self.mod_wave[i, -self.n_mod_pad[i] - 1],
+                        (self.mod_wave[i, -self.n_mod_pad[i] - 1]) + (self.n_mod_pad[i] - 1) * dx,
+                        self.n_mod_pad[i]
+                    )
+            if self.include_model_errs:
+                self.mod_errs_ragged = nested_tensor(
+                    [ensure_tensor(model.mod_errs) for model in self.models]
+                )
+                self.mod_errs = self.mod_errs_ragged.to_padded_tensor(padding=1)
+            else:
+                self.mod_errs = None
         else:
+            self.mod_wave = torch.vstack(
+                [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]
+            )
+            if self.include_model_errs:
+                self.mod_errs = torch.vstack(
+                    [ensure_tensor(model.mod_errs) for model in self.models]
+                )
+            else:
+                self.mod_errs = None
+
+        # Stitch Observation Orders Together
+        if obs_wave is not None:
+            self.n_obs_ord = len(obs['wave'])
+            self.ragged_obs = len(np.unique([wave.shape[0] for wave in obs_wave])) > 1
+            if self.ragged_obs:
+                self.obs_wave_ragged = nested_tensor(
+                    [ensure_tensor(wave, precision=torch.float64) for wave in obs_wave]
+                )
+                self.n_obs_pix = ensure_tensor([self.obs_wave_ragged[i].shape[0] for i in range(self.n_obs_ord)],
+                                               precision=int)
+                self.n_obs_pad = torch.max(self.n_obs_pix) - self.n_obs_pix
+                print(
+                    f"Observed orders do not have the same lengths ({', '.join([str(n_pix.item()) for n_pix in self.n_obs_pix])}); "
+                    f"padding all to n_pix = {torch.max(self.n_obs_pix)}")
+                self.obs_wave = self.obs_wave_ragged.to_padded_tensor(padding=0)
+                for i in range(self.n_mod_ord):
+                    if self.n_obs_pad[i] > 0:
+                        dx = torch.mean(torch.diff(self.obs_wave_ragged[i]))
+                        self.obs_wave[i, -self.n_obs_pad[i]:] = torch.linspace(
+                            self.obs_wave[i, -self.n_obs_pad[i] - 1],
+                            (self.obs_wave[i, -self.n_obs_pad[i] - 1]) + (self.n_obs_pad[i] - 1) * dx,
+                            self.n_obs_pad[i]
+                        )
+                if obs_blaz is not None:
+                    self.obs_blaz_ragged = nested_tensor([ensure_tensor(blaz) for blaz in obs_blaz])
+                    self.obs_blaz = self.obs_blaz_ragged.to_padded_tensor(padding=0)
+                else:
+                    self.obs_blaz = torch.ones_like(self.obs_wave)
+            else:
+                self.obs_wave = torch.vstack(
+                    [ensure_tensor(wave, precision=torch.float64) for wave in obs_wave]
+                )
+                if obs_blaz is not None:
+                    self.obs_blaz = torch.vstack(
+                        [ensure_tensor(blaz) for blaz in obs_wave]
+                    )
+                else:
+                    self.obs_blaz = torch.ones_like(self.obs_wave)
+        else:
+            self.obs_wave = self.mod_wave
             self.obs_blaz = torch.ones_like(self.obs_wave)
 
-        self.n_mod_pix = self.mod_wave.shape[1]
-        self.n_obs_ord = self.obs_wave.shape[0]
-        self.n_obs_pix = self.obs_wave.shape[1]
-
-    def set_obs_wave(self, obs_wave):
-        self.obs_wave = ensure_tensor(obs_wave, precision=torch.float64)
+        # Prepare Continuum Wavelength Grid
         scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
         self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
 
-    @staticmethod
-    def inst_vmacro_iso_broaden_fft(wave, flux, errs, inst_res, vmacro, model_res=None):
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        n_pix = flux.shape[2]
-        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[..., :-1], axis=-1).values
-        eff_wave = torch.median(wave, axis=-1).values
-        freq = torch.vstack([torch.fft.rfftfreq(n_pix, d) for d in dv]).to(torch.float64)
-        sigma_out = 2.99792458e5 / (inst_res * 2.355)
-        sigma_in = 0.0 if model_res is None else 2.99792458e5 / (model_res * 2.355)
-        sigma_inst = torch.sqrt(sigma_out ** 2 - sigma_in ** 2).repeat_interleave(n_ords * freq.shape[-1]).view(
-            n_spec * n_ords, -1)
-        sigma_vmacro = vmacro.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1)
-        sigma_tot = torch.sqrt(sigma_inst ** 2 + sigma_vmacro ** 2)
-        sigma_freq = sigma_tot * freq.repeat(n_spec, 1)
-        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
-        flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
-        flux_ff *= kernel
-        flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        if errs is not None:
-            errs_ff = torch.fft.rfft(errs).view(n_spec * n_ords, -1)
-            errs_ff *= kernel
-            errs_conv = torch.fft.irfft(errs_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        else:
-            errs_conv = None
-        return flux_conv, errs_conv
+        # Continuum coefficients for a flat continuum
+        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        self.c_flat[0] = 1.0
 
-    @staticmethod
-    def inst_broaden(wave, flux, errs, inst_res, model_res=None):
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        n_pix = flux.shape[2]
-        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[..., :-1], axis=-1).values
-        eff_wave = torch.median(wave, axis=-1).values
-        freq = torch.vstack([torch.fft.rfftfreq(n_pix, d) for d in dv]).to(torch.float64)
-        sigma_out = 2.99792458e5 / (inst_res * 2.355)
-        sigma_in = 0.0 if model_res is None else 2.99792458e5 / (model_res * 2.355)
-        sigma = torch.sqrt(sigma_out ** 2 - sigma_in ** 2)
-        sigma_freq = sigma.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1) * freq.repeat(n_spec, 1)
-        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
-        flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
-        flux_ff *= kernel
-        flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        if errs is not None:
-            errs_ff = torch.fft.rfft(errs).view(n_spec * n_ords, -1)
-            errs_ff *= kernel
-            errs_conv = torch.fft.irfft(errs_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        else:
-            errs_conv = None
-        return flux_conv, errs_conv
-
-    @staticmethod
-    def vmacro_iso_broaden(wave, flux, errs, vmacro, ks: int = 21):
-        wave = wave.to(torch.float32)
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        d_wave = wave[..., 1] - wave[..., 0]
-        eff_wave = torch.median(wave, axis=-1).values
-        good_ks = False
-        while not good_ks:
-            loc_steps = (torch.arange(ks) - (ks - 1) // 2).repeat_interleave(n_spec * n_ords).view(ks, n_spec * n_ords)
-            loc = loc_steps * d_wave.repeat(ks, n_spec, 1).view(ks, n_spec * n_ords)
-            scale = vmacro.repeat_interleave(n_ords).view(n_spec * n_ords) / 3e5 * eff_wave.repeat(n_spec).view(
-                n_spec * n_ords)
-            norm = torch.distributions.normal.Normal(
-                loc=torch.zeros(ks, n_spec * n_ords),
-                scale=scale.repeat(ks, 1).view(ks, n_spec * n_ords)
+    def set_obs_wave(self, obs_wave):
+        self.n_obs_ord = len(obs['wave'])
+        self.ragged_obs = len(np.unique([wave.shape[0] for wave in obs_wave])) > 1
+        if self.ragged_obs:
+            self.obs_wave_ragged = nested_tensor(
+                [ensure_tensor(wave, precision=torch.float64) for wave in obs_wave]
             )
-            kernel = norm.log_prob(loc).exp()
-            kernel = kernel / kernel.sum(axis=0)
-            if torch.any(kernel[0, :] > 1e-3):
-                ks += 10
-            else:
-                good_ks = True
-        conv_spec = torch.nn.functional.conv1d(
-            input=flux.view(1, n_spec * n_ords, -1),
-            weight=kernel.T.view(n_spec * n_ords, 1, -1),
-            padding=ks // 2,
-            groups=n_spec * n_ords,
-        ).view(n_spec, n_ords, -1)
+            self.n_obs_pix = ensure_tensor([self.obs_wave_ragged[i].shape[0] for i in range(self.n_obs_ord)],
+                                           precision=int)
+            self.n_obs_pad = torch.max(self.n_obs_pix) - self.n_obs_pix
+            print(
+                f"Observed orders do not have the same lengths ({', '.join([str(n_pix.item()) for n_pix in self.n_obs_pix])}); "
+                f"padding all to n_pix = {torch.max(self.n_obs_pix)}")
+            self.obs_wave = self.obs_wave_ragged.to_padded_tensor(padding=0)
+            for i in range(self.n_mod_ord):
+                if self.n_obs_pad[i] > 0:
+                    dx = torch.mean(torch.diff(self.obs_wave_ragged[i]))
+                    self.obs_wave[i, -self.n_obs_pad[i]:] = torch.linspace(
+                        self.obs_wave[i, -self.n_obs_pad[i] - 1],
+                        (self.obs_wave[i, -self.n_obs_pad[i] - 1]) + (self.n_obs_pad[i] - 1) * dx,
+                        self.n_obs_pad[i]
+                    )
+        else:
+            self.obs_wave = torch.vstack(
+                [ensure_tensor(wave, precision=torch.float64) for wave in obs_wave]
+            )
+        scale_wave_output = self.scale_wave(self.obs_wave.to(torch.float32))
+        self.obs_norm_wave, self.obs_norm_wave_offset, self.obs_norm_wave_scale = scale_wave_output
+        self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
+
+    def set_obs_blaz(self, obs_blaz):
+        if self.ragged_obs:
+            self.obs_blaz_ragged = nested_tensor([ensure_tensor(blaz) for blaz in obs_blaz])
+            self.obs_blaz = self.obs_blaz_ragged.to_padded_tensor(padding=0)
+        else:
+            self.obs_blaz = torch.vstack([ensure_tensor(blaz) for blaz in obs_blaz])
+
+    def scale_stellar_labels(self, unscaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
+
+    def unscale_stellar_labels(self, scaled_labels):
+        x_min = self.stellar_labels_min
+        x_max = self.stellar_labels_max
+        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
+
+    def VmacroRTBroad(self, wave, flux, errs, vmacro, vmacro_rad=None, vmacro_tan=None, Ar=1, At=1):
+        """
+        Adopted from iSpec/FASMA
+        """
+        if vmacro_rad is not None and vmacro_tan is not None:
+            vmacro_rad_c = vmacro_rad / 2.99792458e5
+            vmacro_tan_c = vmacro_tan / 2.99792458e5
+        else:
+            vmacro_rad = vmacro_tan = vmacro
+            vmacro_rad_c = vmacro_tan_c = vmacro_c = vmacro / 2.99792458e5
+        n_spec = vmacro.shape[0]
+        n_ord = wave.shape[0]
+        dlambda_perpix = wave.diff()[:, 0]  # wave must be linearly spaced
+        eff_wave = torch.mean(wave, axis=1)
+
+        # Make Kernel
+        n_pix_kern = torch.floor(torch.max(vmacro_tan_c, vmacro_rad_c) * eff_wave / dlambda_perpix) + 1
+        n_pix_kern_max = torch.max(n_pix_kern)
+        no_conv_necessary = True if n_pix_kern_max == 1 else False
+        if no_conv_necessary:
+            return flux, errs, no_conv_necessary
+        dlambda = (torch.arange(14 * n_pix_kern_max) - 7 * n_pix_kern_max).unsqueeze(0) \
+                  * dlambda_perpix.unsqueeze(1)
+        kern_wave = dlambda + eff_wave.unsqueeze(1)
+        Zr = vmacro_rad_c * eff_wave
+        Zt = vmacro_tan_c * eff_wave
+        kernel = vmacro_kernel(dlambda, Zr, Zt, integrator=self.vmacro_integrator, Ar=Ar, At=At)
+
+        # Convolve Spectra
+        flux_ = pad_array(flux, n_pix_kern_max, 1)
+        conv_flux_ = dlambda_perpix.unsqueeze(0).unsqueeze(2) * fftconvolve(flux_, kernel, mode='same')
+        conv_flux = unpad_array(conv_flux_, n_pix_kern_max)
         if errs is not None:
-            conv_errs = torch.nn.functional.conv1d(
-                input=errs.view(1, n_spec * n_ords, -1),
-                weight=kernel.T.view(n_spec * n_ords, 1, -1),
-                padding=ks // 2,
-                groups=n_spec * n_ords,
-            ).view(n_spec, n_ords, -1)
+            errs_ = pad_array(errs, n_pix_kern_max, 1)
+            conv_errs_ = dlambda_perpix.unsqueeze(0).unsqueeze(2) * fftconvolve(errs_, kernel, mode='same')
+            conv_errs = unpad_array(conv_errs_, n_pix_kern_max)
         else:
             conv_errs = None
-        return conv_spec, conv_errs
+        return conv_flux, conv_errs, no_conv_necessary
 
     @staticmethod
-    def vmacro_iso_broaden_fft(wave, flux, errs, vmacro):
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        n_pix = flux.shape[2]
-        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[..., :-1], axis=-1).values
-        eff_wave = torch.median(wave, axis=-1).values
-        freq = torch.vstack([torch.fft.rfftfreq(n_pix, d) for d in dv]).to(torch.float64)
-        sigma_freq = vmacro.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1) * freq.repeat(n_spec,
-                                                                                                               1)
-        kernel = torch.exp(-2 * (np.pi * sigma_freq) ** 2)
-        flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
-        flux_ff *= kernel
-        flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
+    def RotBroadApprox(wave, flux, errs, vsini, epsilon=0.6):
+        """
+        Adopted from PyAstronomy.pyasl.fastRotBroad
+        """
+        n_spec = vsini.shape[0]
+        n_ord = wave.shape[0]
+        vsini_c = vsini / 2.99792458e5
+        dlambda_perpix = wave.diff()[:, 0]  # wave must be linearly spaced
+        eff_wave = torch.mean(wave, axis=1)
+
+        # Make Kernel
+        n_pix_kern = torch.floor(vsini_c * eff_wave / dlambda_perpix) + 1
+        n_pix_kern_max = torch.max(n_pix_kern)
+        no_conv_necessary = True if n_pix_kern_max == 1 else False
+        if no_conv_necessary:
+            return flux, errs, no_conv_necessary
+        dlambda = (torch.arange(4 * n_pix_kern_max) - 2 * n_pix_kern_max).unsqueeze(0) \
+                  * dlambda_perpix.unsqueeze(1)
+        kern_wave = dlambda + eff_wave.unsqueeze(1)
+        dlambda_max = vsini_c * eff_wave
+        c1 = 2 * (1 - epsilon) / (torch.pi * dlambda_max * (1 - epsilon / 3))
+        c2 = epsilon / (2 * dlambda_max * (1 - epsilon / 3))
+        x = dlambda.unsqueeze(0) / dlambda_max.unsqueeze(2)
+        kernel = c1.unsqueeze(2) * torch.sqrt(1. - x ** 2) + c2.unsqueeze(2) * (1. - x ** 2)
+        kernel[torch.abs(x) > 1] = 0
+        kernel /= torch.trapz(kernel, dlambda.unsqueeze(0)).unsqueeze(2)
+        kernel = kernel[:, :, torch.sum(kernel > 0, axis=(0, 1)) > 0]
+
+        # Convolve Spectra
+        flux_ = pad_array(flux, n_pix_kern_max, 1)
+        conv_flux_ = dlambda_perpix.unsqueeze(0).unsqueeze(2) * fftconvolve(flux_, kernel, mode='same')
+        conv_flux = unpad_array(conv_flux_, n_pix_kern_max)
         if errs is not None:
-            errs_ff = torch.fft.rfft(errs).view(n_spec * n_ords, -1)
-            errs_ff *= kernel
-            errs_conv = torch.fft.irfft(errs_ff, n=n_pix).view(n_spec, n_ords, n_pix)
+            errs_ = pad_array(errs, n_pix_kern_max, 1)
+            conv_errs_ = dlambda_perpix.unsqueeze(0).unsqueeze(2) * fftconvolve(errs_, kernel, mode='same')
+            conv_errs = unpad_array(conv_errs_, n_pix_kern_max)
         else:
-            errs_conv = None
-        return flux_conv, errs_conv
+            conv_errs = None
+        return conv_flux, conv_errs, no_conv_necessary
 
     @staticmethod
-    def vmacro_rt_broaden_fft(wave, flux, errs, vmacro):
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        n_pix = flux.shape[2]
-        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[..., :-1], axis=-1).values
-        eff_wave = torch.median(wave, axis=-1).values
-        freq = torch.vstack([torch.fft.rfftfreq(n_pix, d) for d in dv]).to(torch.float64)
-        sigma_freq = vmacro.repeat_interleave(n_ords * freq.shape[-1]).view(n_spec * n_ords, -1) * freq.repeat(n_spec,
-                                                                                                               1)
-        kernel = (1 - torch.exp(-1 * (np.pi * sigma_freq) ** 2)) / (np.pi * sigma_freq) ** 2
-        kernel[:, 0] = 1.0
-        flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
-        flux_ff *= kernel
-        flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        if errs is not None:
-            errs_ff = torch.fft.rfft(errs).view(n_spec * n_ords, -1)
-            errs_ff *= kernel
-            errs_conv = torch.fft.irfft(errs_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        else:
-            errs_conv = None
-        return flux_conv, errs_conv
+    def RotBroadFull(wave, flux, errs, vsini, epsilon=0.6):
+        """
+        Adopted from PyAstronomy.pyasl.RotBroad
+        Should probably add in padding of the flux/errs here
+        """
+        n_spec = vsini.shape[0]
+        n_ord = wave.shape[0]
+        vsini_c = vsini / 2.99792458e5
+        dlambda_perpix = wave.diff()[:, 0]  # wave must be linearly spaced
 
-    @staticmethod
-    def rot_broaden(wave, flux, errs, vsini):
-        n_spec = flux.shape[0]
-        n_ords = flux.shape[1]
-        n_pix = flux.shape[2]
-        dv = 2.99792458e5 * torch.min(torch.diff(wave) / wave[..., :-1], axis=-1).values
-        freq = torch.vstack([torch.fft.rfftfreq(n_pix, d) for d in dv]).to(torch.float64)
-        ub = 2.0 * np.pi * vsini.repeat_interleave(n_ords * (freq[:, 1:].shape[-1])).view(n_spec * n_ords, -1) * freq[:,
-                                                                                                                 1:].repeat(
-            n_spec, 1)
-        j1_term = j_nu(ub, 1, n_tau=64) / ub
-        cos_term = 3.0 * torch.cos(ub) / (2 * ub ** 2)
-        sin_term = 3.0 * torch.sin(ub) / (2 * ub ** 3)
-        sb = j1_term - cos_term + sin_term
-        # Clean up rounding errors at low frequency; Should be safe for vsini > 0.1 km/s
-        low_freq_idx = (freq[:, 1:].repeat(n_spec, 1).T < freq[:, 1:].repeat(n_spec, 1)[
-            np.arange(n_spec * n_ords), torch.argmax(sb, dim=-1)]).T
-        sb[low_freq_idx] = 1.0
-        kernel = torch.hstack([torch.ones(n_spec * n_ords, 1), sb])
-        flux_ff = torch.fft.rfft(flux).view(n_spec * n_ords, -1)
-        flux_ff *= kernel
-        flux_conv = torch.fft.irfft(flux_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        if errs is not None:
-            errs_ff = torch.fft.rfft(errs).view(n_spec * n_ords, -1)
-            errs_ff *= kernel
-            errs_conv = torch.fft.irfft(errs_ff, n=n_pix).view(n_spec, n_ords, n_pix)
-        else:
-            errs_conv = None
-        return flux_conv, errs_conv
+        # Make Kernels
+        n_pix_kern = torch.floor(
+            vsini_c.unsqueeze(1) * wave.unsqueeze(0) / dlambda_perpix.unsqueeze(0).unsqueeze(2) + 1
+        )
+        n_pix_kern_max = torch.max(n_pix_kern)
+        no_conv_necessary = True if n_pix_kern_max == 1 else False
+        if no_conv_necessary:
+            return flux, errs, no_conv_necessary
+        dlambda = (torch.arange(4 * n_pix_kern_max) - 2 * n_pix_kern_max).unsqueeze(0) \
+                  * dlambda_perpix.unsqueeze(1)
+        kern_wave = dlambda.unsqueeze(1) + wave.unsqueeze(2)
+        dlambda_max = vsini_c.unsqueeze(2) * wave.unsqueeze(0)
+        c1 = 2 * (1 - epsilon) / (torch.pi * dlambda_max * (1 - epsilon / 3))
+        c2 = epsilon / (2 * dlambda_max * (1 - epsilon / 3))
+        x = dlambda.unsqueeze(0).unsqueeze(2) / dlambda_max.unsqueeze(3)
+        kernel = c1.unsqueeze(3) * torch.sqrt(1. - x ** 2) + c2.unsqueeze(3) * (1. - x ** 2)
+        kernel[torch.abs(x) > 1] = 0
+        kernel /= torch.trapz(kernel, dlambda.unsqueeze(0).unsqueeze(2)).unsqueeze(3)
+        kernel = kernel[:, :, :, torch.sum(kernel > 0, axis=(0, 1, 2)) > 0]
+
+        # Convolve Spectra
+        offsets = (torch.arange(kernel.shape[-1]) - torch.floor(torch.tensor(kernel.shape[-1] / 2))).to(int)
+        conv_flux = torch.zeros(n_spec, n_ord, wave.shape[1])
+        conv_errs = torch.zeros(n_spec, n_ord, wave.shape[1])
+        for i in range(n_spec):
+            for j in range(n_ord):
+                kern_mat = torch.sparse.spdiags(
+                    kernel[i, j].T,
+                    offsets=offsets,
+                    shape=(wave.shape[1], wave.shape[1])
+                )
+                conv_flux[i, j] = dlambda_perpix[j] * (kern_mat.to(torch.float32) @ flux[i, j])
+            if errs is not None:
+                conv_errs[i, j] = dlambda_perpix[j] * (kern_mat @ errs[i, j])
+            else:
+                conv_errs = None
+        return conv_flux, conv_errs, no_conv_necessary
 
     @staticmethod
     def get_doppler_wave(wave, rv):
@@ -1021,10 +1092,10 @@ class PayneOrderEmulator(PayneEmulator):
         n_spec = x_old.shape[0]
         n_ords = x_old.shape[1]
         n_pix_old = x_old.shape[2]
-        n_pix_new = x_new.shape[-1]
+        n_pix_new = x_new.shape[1]
         x_old_ = x_old.view(n_spec * n_ords, -1)
         x_new_ = x_new.repeat(n_spec, 1, 1).view(n_spec * n_ords, -1)
-        y_ = y.view(n_spec * n_ords, -1)
+        y_ = y.reshape(n_spec * n_ords, -1)
         out_of_bounds = (x_new_.T < x_old_[:, 0].T).T \
                         | (x_new_.T > x_old_[:, -1].T).T
         x_new_indices = torch.searchsorted(x_old_, x_new_)
@@ -1043,6 +1114,7 @@ class PayneOrderEmulator(PayneEmulator):
 
     def interp_flux(self, old_wave, new_wave, flux, errs):
         if (flux.shape[0] == 1) and (old_wave.shape[0] > 1):
+            # Handle case of singular model spec, multiple RV shifts (e.g., for RV initialization)
             flux = flux.repeat(old_wave.shape[0], 1, 1)
         elif (flux.shape[0] != old_wave.shape[0]):
             raise RuntimeError("RV input and stellar label input have conflicting shapes")
@@ -1054,6 +1126,7 @@ class PayneOrderEmulator(PayneEmulator):
         )
         if errs is not None:
             if (errs.shape[0] == 1) and (old_wave.shape[0] > 1):
+                # Handle case of singular model spec, multiple RV shifts (e.g., for RV initialization)
                 errs = errs.repeat(old_wave.shape[0], 1, 1)
             elif (errs.shape[0] != old_wave.shape[0]):
                 raise RuntimeError("RV input and stellar label input have conflicting shapes")
@@ -1067,60 +1140,25 @@ class PayneOrderEmulator(PayneEmulator):
             intp_errs = None
         return intp_flux, intp_errs
 
-    def scale_stellar_labels(self, unscaled_labels):
-        x_min = self.stellar_labels_min
-        x_max = self.stellar_labels_max
-        return (unscaled_labels - x_min) / (x_max - x_min) - 0.5
-
-    def unscale_stellar_labels(self, scaled_labels):
-        x_min = self.stellar_labels_min
-        x_max = self.stellar_labels_max
-        return (scaled_labels + 0.5) * (x_max - x_min) + x_min
-
-    def forward_model_spec(self, norm_flux, norm_errs, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
-        raise NotImplementedError
-
-    def forward(self, stellar_labels, rv, vmacro, cont_coeffs, inst_res=None, vsini=None):
+    def forward(self, stellar_labels, rv, vmacro=None, vsini=None, cont_coeffs=None, inst_res=None, skip_cont=False):
+        # Generate Normalized Model Spectrum
         n_spec = stellar_labels.shape[0]
-        n_ords, n_pix = self.mod_wave.shape
-        norm_flux = torch.zeros(n_spec, n_ords, n_pix)
-        # Model Spectrum
-        for i, model in enumerate(self.models):
-            norm_flux[:, i, :] = model(stellar_labels)
+        norm_flux = nested_tensor([model(stellar_labels) for model in self.models]).to_padded_tensor(padding=1).movedim(
+            0, 1)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
-        if (inst_res is not None) and (vmacro is not None) and (self.vmacro_method == 'iso_fft'):
-            # Instrumental + Macroturbulent Broadening
-            conv_flux, conv_errs = self.inst_vmacro_iso_broaden_fft(
+        # Macroturbulent Broadening
+        if vmacro is not None:
+            conv_flux, conv_errs, _ = self.vmacro_broaden(
                 wave=self.mod_wave,
                 flux=norm_flux,
                 errs=norm_errs,
-                inst_res=inst_res,
                 vmacro=vmacro,
-                model_res=self.model_res,
             )
         else:
-            # Instrumental Broadening
-            if inst_res is not None:
-                conv_flux, conv_errs = self.inst_broaden(
-                    wave=self.mod_wave,
-                    flux=norm_flux,
-                    errs=norm_errs,
-                    inst_res=inst_res,
-                    model_res=self.model_res,
-                )
-            else:
-                conv_flux, conv_errs = norm_flux, norm_errs
-            # Macroturbulent Broadening
-            if vmacro is not None:
-                conv_flux, conv_errs = self.vmacro_broaden(
-                    wave=self.mod_wave,
-                    flux=conv_flux,
-                    errs=conv_errs,
-                    vmacro=vmacro,
-                )
+            conv_flux, conv_errs = norm_flux, norm_errs
         # Rotational Broadening
         if vsini is not None:
-            conv_flux, conv_errs = self.rot_broaden(
+            conv_flux, conv_errs, _ = self.rot_broaden(
                 wave=self.mod_wave,
                 flux=conv_flux,
                 errs=conv_errs,
@@ -1131,6 +1169,15 @@ class PayneOrderEmulator(PayneEmulator):
             wave=self.mod_wave,
             rv=rv * self.rv_scale,
         )
+        # Instrumental Broadening
+        if inst_res is not None:
+            conv_flux, conv_errs = self.inst_broaden(
+                wave=doppler_wave,
+                flux=norm_flux,
+                errs=norm_errs,
+                inst_res=inst_res,
+                model_res=self.model_res,
+            )
         # Interpolation to Observed Wavelength
         intp_flux, intp_errs = self.interp_flux(
             old_wave=doppler_wave,
@@ -1138,12 +1185,14 @@ class PayneOrderEmulator(PayneEmulator):
             flux=conv_flux,
             errs=conv_errs,
         )
-        # Continuum Correction
-        cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_)
-        if self.include_model_errs:
-            return intp_flux * cont_flux * self.obs_blaz, intp_errs * cont_flux * self.obs_blaz
+        if skip_cont or cont_coeffs is None:
+            cont_flux = 1
         else:
-            return intp_flux * cont_flux * self.obs_blaz, torch.zeros_like(intp_flux)
+            cont_flux = self.calc_cont(cont_coeffs, self.obs_wave_) * self.obs_blaz
+        if self.include_model_errs:
+            return intp_flux * cont_flux, intp_errs * cont_flux
+        else:
+            return intp_flux * cont_flux, torch.zeros_like(intp_flux)
 
 
 class PayneStitchedEmulator(PayneEmulator):
