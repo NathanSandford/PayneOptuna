@@ -1839,7 +1839,7 @@ class PayneOptimizer:
         raise NotImplementedError
 
     def prefit_stellar_labels(self, plot=False):
-        n_spec = 100
+        n_spec = 1000
         stellar_labels0 = torch.zeros(n_spec, self.n_stellar_labels)
         # Initialize [Fe/H]
         fe0 = self.priors['stellar_labels']['Fe'].sample(n_spec)
