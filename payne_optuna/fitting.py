@@ -1865,7 +1865,9 @@ class PayneOptimizer:
                 # Set v_micro using Holtzman2015 scaling
                 with torch.no_grad():
                     x0 = self.holtzman2015(stellar_labels0[:, 1])
-                    x0 = self.emulator.unscale_stellar_labels(x0 * torch.ones(self.n_stellar_labels))[i]
+                    x0 = self.emulator.unscale_stellar_labels(
+                        x0.unsqueeze(1) * torch.ones(n_spec, self.n_stellar_labels)
+                    )[:, i]
             elif label == 'Fe':
                 # Set [Fe/H]
                 x0 = fe0
