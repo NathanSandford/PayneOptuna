@@ -1703,7 +1703,7 @@ class PayneOptimizer:
                 target=self.obs_flux,
                 pred_errs=torch.zeros_like(mod_flux),
                 target_errs=self.obs_errs,
-                f_out=0,
+                f_out=ensure_tensor(0),
             )
         else:
             loss0 = self.loss_fn(
