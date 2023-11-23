@@ -1876,7 +1876,8 @@ class PayneOptimizer:
                 x0 += fe0
             # Scale Stellar Labels
             x0 = self.emulator.scale_stellar_labels(
-                ensure_tensor(x0) * torch.ones(self.n_stellar_labels)
+                #ensure_tensor(x0) * torch.ones(self.n_stellar_labels)
+                x0.unsqueeze(1) * torch.ones(n_spec, self.n_stellar_labels)
             )[i]
             with torch.no_grad():
                 stellar_labels0[:, i] = ensure_tensor(x0)
