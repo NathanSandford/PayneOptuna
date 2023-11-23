@@ -1852,13 +1852,15 @@ class PayneOptimizer:
             logg, logTeff = self._gaia_fn(fe_phot.detach().numpy()).flatten()
         for i, label in enumerate(self.emulator.labels):
             if (label == 'Teff') and self.use_gaia_phot:
-                x0 = self.emulator.scale_stellar_labels(
-                    10 ** logTeff * torch.ones(self.n_stellar_labels)
-                )[i]
+                x0 = 10 ** logTeff
+                #x0 = self.emulator.scale_stellar_labels(
+                #    10 ** logTeff * torch.ones(self.n_stellar_labels)
+                #)[i]
             elif (label == 'logg') and self.use_gaia_phot:
-                x0 = self.emulator.scale_stellar_labels(
-                    logg * torch.ones(self.n_stellar_labels)
-                )[i]
+                x0 = logg
+                #x0 = self.emulator.scale_stellar_labels(
+                #    logg * torch.ones(self.n_stellar_labels)
+                #)[i]
             elif (label == 'v_micro'):  # and not configs['fitting']['fit_vmicro']:
                 # Set v_micro using Holtzman2015 scaling
                 with torch.no_grad():
@@ -1868,7 +1870,7 @@ class PayneOptimizer:
                 # Set [Fe/H]
                 x0 = fe0
             elif label in self.priors['stellar_labels']:
-                x0 = self.priors['stellar_labels'][label].sample(1)
+                x0 = self.priors['stellar_labels'][label].sample(n_spec)
             else:
                 raise RuntimeError(f"Prior not defined for {label} --- cannot initialize")
             if label not in ['Teff', 'logg', 'v_micro', 'Fe']:
@@ -1876,11 +1878,10 @@ class PayneOptimizer:
                 x0 += fe0
             # Scale Stellar Labels
             x0 = self.emulator.scale_stellar_labels(
-                #ensure_tensor(x0) * torch.ones(self.n_stellar_labels)
-                x0.unsqueeze(1) * torch.ones(n_spec, self.n_stellar_labels)
-            )[i]
+                ensure_tensor(x0).unsqueeze(1) * torch.ones(n_spec, self.n_stellar_labels)
+            )[:, i]
             with torch.no_grad():
-                stellar_labels0[:, i] = ensure_tensor(x0)
+                stellar_labels0[:, i] = x0
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
             rv=self.rv,
