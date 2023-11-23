@@ -2088,6 +2088,7 @@ class PayneOptimizer:
             gaia_bprp=None,
             gaia_cmd_interpolator=None,
             verbose=False,
+            print_update_every=20,
             plot_prefits=False,
             plot_fit_every=None,
     ):
@@ -2277,13 +2278,11 @@ class PayneOptimizer:
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
-                    #self.log_vmacro.clamp_(min=-1.0, max=1.3)
                     self.log_vmacro.clamp_(
                         min=self.priors['log_vmacro'].lower_bound,
                         max=self.priors['log_vmacro'].upper_bound,
                     )
                 if self.log_vsini is not None:
-                    #self.log_vsini.clamp_(min=-1.0, max=2.5)
                     self.log_vsini.clamp_(
                         min=self.priors['log_vsini'].lower_bound,
                         max=self.priors['log_vsini'].upper_bound,
@@ -2309,7 +2308,7 @@ class PayneOptimizer:
                                                                               self.history['log_vsini'][-1]
             delta_f_out = ensure_tensor(0) if self.f_out is None else self.f_out - self.history['f_out'][-1]
             delta_cont_coeffs = torch.stack(self.cont_coeffs) - self.history['cont_coeffs'][-1]
-            if self.epoch % 20 == 0:
+            if self.epoch % print_update_every == 0:
                 cont = self.emulator.calc_cont(
                     torch.stack(self.cont_coeffs),
                     self.obs_wave_
