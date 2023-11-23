@@ -1840,17 +1840,9 @@ class PayneOptimizer:
 
     def prefit_stellar_labels(self, plot=False):
         n_spec = 100
-        stellar_labels0 = torch.zeros(100, self.n_stellar_labels)
-        if type(self.priors['Fe']) == GaussianLogPrior:
-            fe0 = torch.zeros(n_spec).normal_(
-                self.priors['Fe'].mu,
-                self.priors['Fe'].sigma,
-            )
-        else:
-            fe0 = torch.zeros(n_spec).uniform_(
-                self.priors['Fe'].lower_bound,
-                self.priors['Fe'].upper_bound,
-            )
+        stellar_labels0 = torch.zeros(n_spec, self.n_stellar_labels)
+        # Initialize [Fe/H]
+        fe0 = self.priors['stellar_labels']['Fe'].sample(n_spec)
         if self.use_gaia_phot:
             fe_phot = torch.vstack([
                 fe0,
@@ -1867,36 +1859,27 @@ class PayneOptimizer:
                 x0 = self.emulator.scale_stellar_labels(
                     logg * torch.ones(self.n_stellar_labels)
                 )[i]
-            elif label in self.priors:
-                if type(self.priors[label]) == GaussianLogPrior:
-                    x0 = torch.zeros(n_spec).normal_(
-                        self.priors[label].mu,
-                        self.priors[label].sigma,
-                    )
-                elif type(self.priors[label]) == DeltaLogPrior:
-                    x0 = torch.ones(n_spec) * self.priors[label].d
-                else:
-                    x0 = torch.zeros(n_spec).uniform_(
-                        self.priors[label].lower_bound,
-                        self.priors[label].upper_bound,
-                    )
-                if label == 'Fe':
-                    x0 = fe0
-                elif label not in ['Teff', 'logg', 'v_micro', 'Fe']:
-                    x0 += fe0
-                x0 = self.emulator.scale_stellar_labels(
-                    x0 * torch.ones(self.n_stellar_labels)
-                )[i]
+            elif (label == 'v_micro'):  # and not configs['fitting']['fit_vmicro']:
+                # Set v_micro using Holtzman2015 scaling
+                with torch.no_grad():
+                    x0 = self.holtzman2015(stellar_labels0[:, 1])
+                    x0 = self.emulator.unscale_stellar_labels(x0 * torch.ones(self.n_stellar_labels))[i]
+            elif label == 'Fe':
+                # Set [Fe/H]
+                x0 = fe0
+            elif label in self.priors['stellar_labels']:
+                x0 = self.priors['stellar_labels'][label].sample(1)
             else:
-                x0 = torch.zeros(n_spec).uniform_(-0.55, 0.55)
+                raise RuntimeError(f"Prior not defined for {label} --- cannot initialize")
+            if label not in ['Teff', 'logg', 'v_micro', 'Fe']:
+                # Scale all abundances by [Fe/H]
+                x0 += fe0
+            # Scale Stellar Labels
+            x0 = self.emulator.scale_stellar_labels(
+                ensure_tensor(x0) * torch.ones(self.n_stellar_labels)
+            )[i]
             with torch.no_grad():
                 stellar_labels0[:, i] = ensure_tensor(x0)
-        if self.use_holtzman2015:
-            with torch.no_grad():
-                stellar_labels0[:, 2] = self.emulator.scale_stellar_labels(
-                    (2.478 - 0.325 * self.emulator.unscale_stellar_labels(stellar_labels0)[:, 1]) * torch.ones(
-                        self.emulator.n_stellar_labels)
-                )[2]
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
             rv=self.rv,
