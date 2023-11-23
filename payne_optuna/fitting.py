@@ -1838,7 +1838,7 @@ class PayneOptimizer:
     def prefit_f_out(self, plot=False):
         raise NotImplementedError
 
-    def prefit_stellar_labels(self):
+    def prefit_stellar_labels(self, plot=False):
         n_spec = 100
         stellar_labels0 = torch.zeros(100, self.n_stellar_labels)
         if type(self.priors['Fe']) == GaussianLogPrior:
@@ -1927,6 +1927,8 @@ class PayneOptimizer:
                 pred_errs=torch.zeros_like(mod_flux),
                 target_errs=self.obs_errs,
             )
+            if plot == True:
+                print('Plotting not implemented for prefit_stellar_labels')
         return stellar_labels0[loss0.argmin()].unsqueeze(0)
 
     def init_optimizer_scheduler(self):
