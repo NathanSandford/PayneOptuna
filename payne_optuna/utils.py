@@ -109,3 +109,15 @@ def noise_up_spec(D0, sigma_D0, factor, nspec=1, min_flux=-1e10, max_flux=1e10, 
     ).clip(min=min_flux, max=max_flux)
     sigma_D = np.sqrt(sigma_D0**2 + sigma**2)
     return D, sigma_D
+
+
+def pad_array(array, pad_size, pad_value):
+    return torch.nn.functional.pad(
+        array,
+        pad=(pad_size.to(int), pad_size.to(int), 0, 0),
+        value=pad_value,
+    )
+
+
+def unpad_array(array, pad_size):
+    return array[..., pad_size.to(int):-pad_size.to(int)]
