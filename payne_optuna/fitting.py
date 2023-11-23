@@ -1886,7 +1886,7 @@ class PayneOptimizer:
                 stellar_labels0[:, i] = x0
         mod_flux, mod_errs = self.emulator(
             stellar_labels=stellar_labels0,
-            rv=self.rv.unsqueeze(0),
+            rv=self.rv * torch.ones(n_spec, 1),
             cont_coeffs=self.cont_coeffs,
             vmacro=None if self.log_vmacro is None else 10 ** self.log_vmacro,
             vsini=None if self.log_vsini is None else 10 ** self.log_vsini,
