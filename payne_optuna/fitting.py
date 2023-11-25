@@ -2265,11 +2265,11 @@ class PayneOptimizer:
                 scaled_stellar_bounds = self.emulator.scale_stellar_labels(
                     self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
                 )
-                for i, label in enumerate(self.emulator.labels):
-                    self.stellar_labels[:, i].clamp_(
-                        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
-                        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
-                    )
+                #for i, label in enumerate(self.emulator.labels):
+                #    self.stellar_labels[:, i].clamp_(
+                #        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
+                #        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
+                #    )
                 if self.use_gaia_phot:
                     self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
