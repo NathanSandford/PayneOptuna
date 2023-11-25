@@ -2018,6 +2018,10 @@ class PayneOptimizer:
     def neg_log_posterior(self, pred, target, pred_errs, target_errs):
         log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)
         log_priors = self.log_priors(log_likelihood)
+        if torch.isnan(log_likelihood):
+            raise RuntimeError('NaN value returned for log_likelihood')
+        if torch.isnan(log_priors):
+            raise RuntimeError('NaN value returned for log_priors')
         return -1 * (log_likelihood + log_priors)
 
     def neg_log_posterior_mixture(self, pred, target, pred_errs, target_errs, f_out, out_err_scale=50):
@@ -2029,6 +2033,10 @@ class PayneOptimizer:
         )
         log_likelihood = torch.logaddexp(log_likelihood_in, log_likelihood_out)
         log_priors = self.log_priors(log_likelihood)
+        if torch.isnan(log_likelihood):
+            raise RuntimeError('NaN value returned for log_likelihood')
+        if torch.isnan(log_priors):
+            raise RuntimeError('NaN value returned for log_priors')
         return -1 * (log_likelihood + log_priors)
 
     def forward(self):
