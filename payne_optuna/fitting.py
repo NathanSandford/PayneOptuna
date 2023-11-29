@@ -1146,8 +1146,14 @@ class PayneOrderEmulator(PayneEmulator):
     def forward(self, stellar_labels, rv, vmacro=None, vsini=None, cont_coeffs=None, inst_res=None, skip_cont=False):
         # Generate Normalized Model Spectrum
         n_spec = stellar_labels.shape[0]
-        norm_flux = nested_tensor([model(stellar_labels) for model in self.models]).to_padded_tensor(padding=1).movedim(
-            0, 1)
+        #norm_flux = nested_tensor([model(stellar_labels) for model in self.models]).to_padded_tensor(padding=1).movedim(
+        #    0, 1)
+        norm_flux = torch.vstack(
+            [
+                torch.hstack([self.models[i](stellar_labels), torch.ones(1, self.n_mod_pad[i])])
+                for i in range(self.n_models)
+            ]
+        ).unsqueeze(0)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
         # Macroturbulent Broadening
         if vmacro is not None:
