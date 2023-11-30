@@ -13,7 +13,7 @@ class UniformLogPrior:
         self.dist = uniform(loc=self.lower_bound, scale=self.upper_bound-self.lower_bound)
 
     def __call__(self, x):
-        log_prior = torch.zeros_like(x)
+        log_prior = torch.ones_like(x) / (self.upper_bound - self.lower_bound)
         log_prior[(x < self.lower_bound) | (x > self.upper_bound)] = self.out_of_bounds_val
         return log_prior
 
