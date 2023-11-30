@@ -2019,6 +2019,8 @@ class PayneOptimizer:
             log_priors += self.priors['log_vsini'](self.log_vsini[:, 0])
         if self.inst_res is not None:
             log_priors += self.priors['inst_res'](self.inst_res[:, 0])
+        if self.f_out is not None:
+            log_priors += self.priors['f_out'](self.f_out[:, 0])
         return log_priors
 
     def neg_log_posterior(self, pred, target, pred_errs, target_errs):
