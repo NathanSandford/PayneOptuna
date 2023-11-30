@@ -2023,12 +2023,12 @@ class PayneOptimizer:
 
     def neg_log_posterior(self, pred, target, pred_errs, target_errs):
         log_likelihood = gaussian_log_likelihood(pred, target, pred_errs, target_errs)
-        #log_priors = self.log_priors(log_likelihood)
+        log_priors = self.log_priors(log_likelihood)
         if torch.any(torch.isnan(log_likelihood)):
             raise RuntimeError('NaN value returned for log_likelihood')
-        #if torch.any(torch.isnan(log_priors)):
-        #    raise RuntimeError('NaN value returned for log_priors')
-        return -1 * (log_likelihood)# + log_priors)
+        if torch.any(torch.isnan(log_priors)):
+            raise RuntimeError('NaN value returned for log_priors')
+        return -1 * (log_likelihood + log_priors)
 
     def neg_log_posterior_mixture(self, pred, target, pred_errs, target_errs, f_out, out_err_scale=50):
         log_likelihood_in = torch.log(1 - f_out) + gaussian_log_likelihood(
@@ -2271,11 +2271,11 @@ class PayneOptimizer:
                 scaled_stellar_bounds = self.emulator.scale_stellar_labels(
                     self.stellar_label_bounds + self.fe_scaler * unscaled_stellar_labels[:, self.fe_idx]
                 )
-                #for i, label in enumerate(self.emulator.labels):
-                #    self.stellar_labels[:, i].clamp_(
-                #        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
-                #        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
-                #    )
+                for i, label in enumerate(self.emulator.labels):
+                    self.stellar_labels[:, i].clamp_(
+                        min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
+                        max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
+                    )
                 if self.use_gaia_phot:
                     self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
