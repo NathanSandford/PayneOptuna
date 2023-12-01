@@ -1150,7 +1150,7 @@ class PayneOrderEmulator(PayneEmulator):
         #    0, 1)
         norm_flux = torch.vstack(
             [
-                torch.hstack([self.models[i](stellar_labels), torch.ones(1, self.n_mod_pad[i])])
+                torch.hstack([self.models[i](stellar_labels), torch.ones(n_spec, self.n_mod_pad[i])])
                 for i in range(self.n_models)
             ]
         ).unsqueeze(0)
