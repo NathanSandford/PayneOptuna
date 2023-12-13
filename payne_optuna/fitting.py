@@ -101,7 +101,10 @@ class PayneEmulator(torch.nn.Module):
 
     @staticmethod
     def calc_cont(coeffs, wave_):
-        cont_flux = torch.einsum('ij, ijk -> jk', coeffs, wave_)
+        if coeffs.ndim == 2:
+            cont_flux = torch.einsum('ij, ijk -> jk', coeffs, wave_)
+        if coeffs.ndim == 3:
+            cont_flux = torch.einsum('ijk, jkl -> ikl', coeffs, wave_)
         return cont_flux
 
     @staticmethod
