@@ -1153,7 +1153,7 @@ class PayneOrderEmulator(PayneEmulator):
                 torch.hstack([self.models[i](stellar_labels), torch.ones(n_spec, self.n_mod_pad[i])])
                 for i in range(self.n_models)
             ]
-        ).unsqueeze(0)
+        ).reshape(n_spec, self.n_models, -1)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
         # Macroturbulent Broadening
         if vmacro is not None:
