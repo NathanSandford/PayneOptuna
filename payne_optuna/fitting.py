@@ -806,6 +806,13 @@ class PayneOrderEmulator(PayneEmulator):
         self.cont_deg = cont_deg
         self.n_cont_coeffs = self.cont_deg + 1
         self.cont_wave_norm_range = cont_wave_norm_range
+        fe_scaled_idx = [
+            i for i, label in enumerate(self.labels)
+            if label not in ['Teff', 'logg', 'v_micro', 'Fe']
+        ]
+        fe_scaler = torch.zeros(self.n_stellar_labels)
+        fe_scaler[fe_scaled_idx] = 1
+        self.fe_scaler = fe_scaler
 
         # Set Model Broadening Methods
         self.vmacro_integrator = Simpson().get_jit_compiled_integrate(
