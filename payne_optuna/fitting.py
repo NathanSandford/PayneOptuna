@@ -851,10 +851,10 @@ class PayneOrderEmulator(PayneEmulator):
             else:
                 self.mod_errs = None
         else:
+            self.n_mod_pad = None
             self.mod_wave = torch.vstack(
                 [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]
             )
-            self.n_mod_pad = torch.zeros(self.n_mod_ord, dtype=torch.int)
             if self.include_model_errs:
                 self.mod_errs = torch.vstack(
                     [ensure_tensor(model.mod_errs) for model in self.models]
@@ -1157,14 +1157,18 @@ class PayneOrderEmulator(PayneEmulator):
     def forward(self, stellar_labels, rv, vmacro=None, vsini=None, cont_coeffs=None, inst_res=None, skip_cont=False):
         # Generate Normalized Model Spectrum
         n_spec = stellar_labels.shape[0]
-        #norm_flux = nested_tensor([model(stellar_labels) for model in self.models]).to_padded_tensor(padding=1).movedim(
-        #    0, 1)
-        norm_flux = torch.stack([
-            torch.hstack(
-                [self.models[i](stellar_labels), torch.ones(n_spec, self.n_mod_pad[i])]
-            )
-            for i in range(self.n_models)
-        ], dim=1)
+        if self.n_mod_pad is not None:
+            norm_flux = torch.stack([
+                torch.hstack(
+                    [self.models[i](stellar_labels), torch.ones(n_spec, self.n_mod_pad[i])]
+                )
+                for i in range(self.n_models)
+            ], dim=1)
+        else:
+            norm_flux = torch.stack([
+                self.models[i](stellar_labels)
+                for i in range(self.n_models)
+            ], dim=1)
         norm_errs = self.mod_errs.repeat(n_spec, 1, 1) if self.include_model_errs else None
         # Macroturbulent Broadening
         if vmacro is not None:
