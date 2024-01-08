@@ -854,7 +854,7 @@ class PayneOrderEmulator(PayneEmulator):
             self.mod_wave = torch.vstack(
                 [ensure_tensor(model.wavelength, precision=torch.float64) for model in self.models]
             )
-            self.n_mod_pad = torch.zeros(self.n_mod_ord)
+            self.n_mod_pad = torch.zeros(self.n_mod_ord, dtype=torch.int)
             if self.include_model_errs:
                 self.mod_errs = torch.vstack(
                     [ensure_tensor(model.mod_errs) for model in self.models]
