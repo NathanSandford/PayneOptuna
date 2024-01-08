@@ -909,7 +909,7 @@ class PayneOrderEmulator(PayneEmulator):
         self.obs_wave_ = torch.stack([self.obs_norm_wave ** i for i in range(self.n_cont_coeffs)], dim=0)
 
         # Continuum coefficients for a flat continuum
-        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_obs_ord)
+        self.c_flat = torch.zeros(self.n_cont_coeffs, self.n_mod_ord)
         self.c_flat[0] = 1.0
 
     def set_obs_wave(self, obs_wave):
