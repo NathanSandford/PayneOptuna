@@ -1864,20 +1864,20 @@ class PayneOptimizer:
         stellar_labels0 = torch.zeros(n_spec, self.n_stellar_labels)
         # Initialize [Fe/H]
         fe0 = self.priors['stellar_labels']['Fe'].sample(n_spec)
-        if self.use_gaia_phot:
+        if self.use_phot:
             fe_phot = torch.vstack([
                 fe0,
-                self.gaia_bprp,
-                self.gaia_g,
+                self.phot_color,
+                self.phot_mag,
             ]).T
-            logg, logTeff = self._gaia_fn(fe_phot.detach().numpy()).flatten()
+            logg, logTeff = self._cmd_interp_fn(fe_phot.detach().numpy()).flatten()
         for i, label in enumerate(self.emulator.labels):
-            if (label == 'Teff') and self.use_gaia_phot:
+            if (label == 'Teff') and self.use_phot:
                 x0 = 10 ** logTeff
                 #x0 = self.emulator.scale_stellar_labels(
                 #    10 ** logTeff * torch.ones(self.n_stellar_labels)
                 #)[i]
-            elif (label == 'logg') and self.use_gaia_phot:
+            elif (label == 'logg') and self.use_phot:
                 x0 = logg
                 #x0 = self.emulator.scale_stellar_labels(
                 #    logg * torch.ones(self.n_stellar_labels)
@@ -1984,7 +1984,7 @@ class PayneOptimizer:
         )
         return optimizer, scheduler
 
-    def atm_from_gaia_phot(self, scaled_feh):
+    def atm_from_phot(self, scaled_feh):
         n_spec = scaled_feh.shape[0]
         teff_min = self.emulator.stellar_labels_min[0]
         teff_max = self.emulator.stellar_labels_max[0]
@@ -1994,19 +1994,19 @@ class PayneOptimizer:
         fe_max = self.emulator.stellar_labels_max[self.fe_idx]
         unscaled_fe = (scaled_feh + 0.5) * (fe_max - fe_min) + fe_min
         vec = torch.zeros(
-            (self._gaia_n_cmd + self._gaia_n_pow, n_spec),
+            (self._cmd_n_cmd + self._cmd_n_pow, n_spec),
             dtype=torch.float64
         )
         feh_phot = torch.vstack(
-            [unscaled_fe, self.gaia_bprp.repeat(n_spec), self.gaia_g.repeat(n_spec)]
-        ).T * self._gaia_eps
-        feh_phot_hat = (feh_phot - self._gaia_shift) / self._gaia_scale
-        d = feh_phot.unsqueeze(0) - self._gaia_cmd.unsqueeze(1)
+            [unscaled_fe, self.phot_color.repeat(n_spec), self.phot_mag.repeat(n_spec)]
+        ).T * self._cmd_eps
+        feh_phot_hat = (feh_phot - self._cmd_shift) / self._cmd_scale
+        d = feh_phot.unsqueeze(0) - self._cmd.unsqueeze(1)
         r = torch.linalg.norm(d, axis=2)
-        vec[:self._gaia_n_cmd, :] = thin_plate_spline(r)
-        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._gaia_pow.unsqueeze(1)
-        vec[self._gaia_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
-        logg_logteff = torch.tensordot(self._gaia_coeffs, vec, dims=[[0], [0]])
+        vec[:self._cmd_n_cmd, :] = thin_plate_spline(r)
+        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._cmd_pow.unsqueeze(1)
+        vec[self._cmd_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
+        logg_logteff = torch.tensordot(self._cmd_coeffs, vec, dims=[[0], [0]])
         scaled_logg = (logg_logteff[0] - logg_min) / (logg_max - logg_min) - 0.5
         scaled_teff = (10 ** logg_logteff[1] - teff_min) / (teff_max - teff_min) - 0.5
         scaled_logg_teff = torch.vstack([scaled_teff, scaled_logg]).T
@@ -2103,10 +2103,10 @@ class PayneOptimizer:
             max_epochs=10000,
             prefit_cont_window=55,
             use_holtzman2015=False,
-            use_gaia_phot=False,
-            gaia_g=None,
-            gaia_bprp=None,
-            gaia_cmd_interpolator=None,
+            use_phot=False,
+            phot_mag=None,
+            phot_color=None,
+            cmd_interpolator=None,
             verbose=False,
             print_update_every=20,
             plot_prefits=False,
@@ -2147,24 +2147,24 @@ class PayneOptimizer:
             for label, prior in self.priors['stellar_labels'].items()
         ]).T
         self.use_holtzman2015 = use_holtzman2015
-        self.use_gaia_phot = use_gaia_phot
-        if self.use_gaia_phot:
-            if gaia_g is None or gaia_bprp is None:
-                raise ValueError("Gaia photometry is not provided")
-            if gaia_cmd_interpolator is None:
-                raise ValueError("Gaia CMD interpolator is not provided")
-            self.gaia_g = ensure_tensor(gaia_g)
-            self.gaia_bprp = ensure_tensor(gaia_bprp)
-            self._gaia_fn = gaia_cmd_interpolator
-            self._gaia_cmd = ensure_tensor(self._gaia_fn.y * self._gaia_fn.epsilon, precision=torch.float64)
-            self._gaia_eps = ensure_tensor(self._gaia_fn.epsilon, precision=torch.float64)
-            self._gaia_pow = ensure_tensor(self._gaia_fn.powers, precision=torch.float64)
-            self._gaia_coeffs = ensure_tensor(self._gaia_fn._coeffs, precision=torch.float64)
-            self._gaia_shift = ensure_tensor(self._gaia_fn._shift, precision=torch.float64)
-            self._gaia_scale = ensure_tensor(self._gaia_fn._scale, precision=torch.float64)
-            self._gaia_n_cmd = self._gaia_cmd.shape[0]
-            self._gaia_n_pow = self._gaia_pow.shape[0]
-            self._gaia_n_coeffs = self._gaia_coeffs.shape[1]
+        self.use_phot = use_phot
+        if self.use_phot:
+            if phot_mag is None or phot_color is None:
+                raise ValueError("Photometry is not provided")
+            if cmd_interpolator is None:
+                raise ValueError("CMD interpolator is not provided")
+            self.phot_mag = ensure_tensor(phot_mag)
+            self.phot_color = ensure_tensor(phot_color)
+            self._cmd_interp_fn = cmd_interpolator
+            self._cmd = ensure_tensor(self._cmd_interp_fn.y * self._cmd_interp_fn.epsilon, precision=torch.float64)
+            self._cmd_eps = ensure_tensor(self._cmd_interp_fn.epsilon, precision=torch.float64)
+            self._cmd_pow = ensure_tensor(self._cmd_interp_fn.powers, precision=torch.float64)
+            self._cmd_coeffs = ensure_tensor(self._cmd_interp_fn._coeffs, precision=torch.float64)
+            self._cmd_shift = ensure_tensor(self._cmd_interp_fn._shift, precision=torch.float64)
+            self._cmd_scale = ensure_tensor(self._cmd_interp_fn._scale, precision=torch.float64)
+            self._cmd_n_cmd = self._cmd.shape[0]
+            self._cmd_n_pow = self._cmd_pow.shape[0]
+            self._cmd_n_coeffs = self._cmd_coeffs.shape[1]
 
         # Initialize Starting Values
         self.init_values(plot_prefits=plot_prefits)
@@ -2293,8 +2293,8 @@ class PayneOptimizer:
                         min=torch.max(scaled_stellar_bounds[0, i], ensure_tensor(-0.5)).item(),
                         max=torch.min(scaled_stellar_bounds[1, i], ensure_tensor(0.5)).item(),
                     )
-                if self.use_gaia_phot:
-                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
+                if self.use_phot:
+                    self.stellar_labels[:, :2] = self.atm_from_phot(self.stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
@@ -2609,19 +2609,19 @@ class PayneOptimizerMulti:
                 self.priors['Fe'].lower_bound,
                 self.priors['Fe'].upper_bound,
             )
-        if self.use_gaia_phot:
+        if self.use_phot:
             fe_phot = torch.vstack([
                 fe0,
-                self.gaia_bprp,
-                self.gaia_g,
+                self.phot_color,
+                self.phot_mag,
             ]).T
-            logg, logTeff = self._gaia_fn(fe_phot.detach().numpy()).flatten()
+            logg, logTeff = self._cmd_interp_fn(fe_phot.detach().numpy()).flatten()
         for i, label in enumerate(self.emulator.labels):
-            if (label == 'Teff') and self.use_gaia_phot:
+            if (label == 'Teff') and self.use_phot:
                 x0 = self.emulator.scale_stellar_labels(
                     10 ** logTeff * torch.ones(self.n_stellar_labels)
                 )[i]
-            elif (label == 'logg') and self.use_gaia_phot:
+            elif (label == 'logg') and self.use_phot:
                 x0 = self.emulator.scale_stellar_labels(
                     logg * torch.ones(self.n_stellar_labels)
                 )[i]
@@ -2718,7 +2718,7 @@ class PayneOptimizerMulti:
         )
         return optimizer, scheduler
 
-    def atm_from_gaia_phot(self, scaled_feh):
+    def atm_from_phot(self, scaled_feh):
         n_spec = scaled_feh.shape[0]
         teff_min = self.emulator.stellar_labels_min[0]
         teff_max = self.emulator.stellar_labels_max[0]
@@ -2728,19 +2728,19 @@ class PayneOptimizerMulti:
         fe_max = self.emulator.stellar_labels_max[self.fe_idx]
         unscaled_fe = (scaled_feh + 0.5) * (fe_max - fe_min) + fe_min
         vec = torch.zeros(
-            (self._gaia_n_cmd + self._gaia_n_pow, n_spec),
+            (self._cmd_n_cmd + self._cmd_n_pow, n_spec),
             dtype=torch.float64
         )
         feh_phot = torch.vstack(
-            [unscaled_fe, self.gaia_bprp.repeat(n_spec), self.gaia_g.repeat(n_spec)]
-        ).T * self._gaia_eps
-        feh_phot_hat = (feh_phot - self._gaia_shift) / self._gaia_scale
-        d = feh_phot.unsqueeze(0) - self._gaia_cmd.unsqueeze(1)
+            [unscaled_fe, self.phot_color.repeat(n_spec), self.phot_mag.repeat(n_spec)]
+        ).T * self._cmd_eps
+        feh_phot_hat = (feh_phot - self._cmd_shift) / self._cmd_scale
+        d = feh_phot.unsqueeze(0) - self._cmd.unsqueeze(1)
         r = torch.linalg.norm(d, axis=2)
-        vec[:self._gaia_n_cmd, :] = thin_plate_spline(r)
-        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._gaia_pow.unsqueeze(1)
-        vec[self._gaia_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
-        logg_logteff = torch.tensordot(self._gaia_coeffs, vec, dims=[[0], [0]])
+        vec[:self._cmd_n_cmd, :] = thin_plate_spline(r)
+        feh_phot_hat_powers = feh_phot_hat.unsqueeze(0) ** self._cmd_pow.unsqueeze(1)
+        vec[self._cmd_n_cmd:, :] = torch.prod(feh_phot_hat_powers, axis=2)
+        logg_logteff = torch.tensordot(self._cmd_coeffs, vec, dims=[[0], [0]])
         scaled_logg = (logg_logteff[0] - logg_min) / (logg_max - logg_min) - 0.5
         scaled_teff = (10 ** logg_logteff[1] - teff_min) / (teff_max - teff_min) - 0.5
         scaled_logg_teff = torch.vstack([scaled_teff, scaled_logg]).T
@@ -2815,10 +2815,10 @@ class PayneOptimizerMulti:
             max_epochs=10000,
             prefit_cont_window=55,
             use_holtzman2015=False,
-            use_gaia_phot=False,
-            gaia_g=None,
-            gaia_bprp=None,
-            gaia_cmd_interpolator=None,
+            use_phot=False,
+            phot_mag=None,
+            phot_color=None,
+            cmd_interpolator=None,
             verbose=False,
             plot_prefits=False,
             plot_fit_every=None,
@@ -2860,24 +2860,24 @@ class PayneOptimizerMulti:
             for prior in self.priors['stellar_labels']
         ]).T
         self.use_holtzman2015 = use_holtzman2015
-        self.use_gaia_phot = use_gaia_phot
-        if self.use_gaia_phot:
-            if gaia_g is None or gaia_bprp is None:
-                raise ValueError("Gaia photometry is not provided")
-            if gaia_cmd_interpolator is None:
-                raise ValueError("Gaia CMD interpolator is not provided")
-            self.gaia_g = ensure_tensor(gaia_g)
-            self.gaia_bprp = ensure_tensor(gaia_bprp)
-            self._gaia_fn = gaia_cmd_interpolator
-            self._gaia_cmd = ensure_tensor(self._gaia_fn.y * self._gaia_fn.epsilon, precision=torch.float64)
-            self._gaia_eps = ensure_tensor(self._gaia_fn.epsilon, precision=torch.float64)
-            self._gaia_pow = ensure_tensor(self._gaia_fn.powers, precision=torch.float64)
-            self._gaia_coeffs = ensure_tensor(self._gaia_fn._coeffs, precision=torch.float64)
-            self._gaia_shift = ensure_tensor(self._gaia_fn._shift, precision=torch.float64)
-            self._gaia_scale = ensure_tensor(self._gaia_fn._scale, precision=torch.float64)
-            self._gaia_n_cmd = self._gaia_cmd.shape[0]
-            self._gaia_n_pow = self._gaia_pow.shape[0]
-            self._gaia_n_coeffs = self._gaia_coeffs.shape[1]
+        self.use_phot = use_phot
+        if self.use_phot:
+            if phot_mag is None or phot_color is None:
+                raise ValueError("Photometry is not provided")
+            if cmd_interpolator is None:
+                raise ValueError("CMD interpolator is not provided")
+            self.phot_mag = ensure_tensor(phot_mag)
+            self.phot_color = ensure_tensor(phot_color)
+            self._cmd_interp_fn = cmd_interpolator
+            self._cmd = ensure_tensor(self._cmd_interp_fn.y * self._cmd_interp_fn.epsilon, precision=torch.float64)
+            self._cmd_eps = ensure_tensor(self._cmd_interp_fn.epsilon, precision=torch.float64)
+            self._cmd_pow = ensure_tensor(self._cmd_interp_fn.powers, precision=torch.float64)
+            self._cmd_coeffs = ensure_tensor(self._cmd_interp_fn._coeffs, precision=torch.float64)
+            self._cmd_shift = ensure_tensor(self._cmd_interp_fn._shift, precision=torch.float64)
+            self._cmd_scale = ensure_tensor(self._cmd_interp_fn._scale, precision=torch.float64)
+            self._cmd_n_cmd = self._cmd.shape[0]
+            self._cmd_n_pow = self._cmd_pow.shape[0]
+            self._cmd_n_coeffs = self._cmd_coeffs.shape[1]
 
         # Initialize Starting Values
         self.init_values(plot_prefits=plot_prefits)
@@ -2994,8 +2994,8 @@ class PayneOptimizerMulti:
                 #    min=scaled_stellar_bounds[0],
                 #    max=scaled_stellar_bounds[1],
                 # )
-                if self.use_gaia_phot:
-                    self.stellar_labels[:, :2] = self.atm_from_gaia_phot(self.stellar_labels[:, self.fe_idx])
+                if self.use_phot:
+                    self.stellar_labels[:, :2] = self.atm_from_phot(self.stellar_labels[:, self.fe_idx])
                 if self.use_holtzman2015:
                     self.stellar_labels[:, 2] = self.holtzman2015(self.stellar_labels[:, 1])
                 if self.log_vmacro is not None:
