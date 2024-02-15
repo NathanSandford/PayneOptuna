@@ -977,7 +977,7 @@ class PayneOrderEmulator(PayneEmulator):
 
         # Make Kernel
         n_pix_kern = torch.floor(torch.max(vmacro_tan_c, vmacro_rad_c) * eff_wave / dlambda_perpix) + 1
-        n_pix_kern_max = torch.max(n_pix_kern)
+        n_pix_kern_max = torch.max(n_pix_kern).item()
         no_conv_necessary = True if n_pix_kern_max == 1 else False
         if no_conv_necessary:
             return flux, errs, no_conv_necessary
@@ -1013,7 +1013,7 @@ class PayneOrderEmulator(PayneEmulator):
 
         # Make Kernel
         n_pix_kern = torch.floor(vsini_c * eff_wave / dlambda_perpix) + 1
-        n_pix_kern_max = torch.max(n_pix_kern)
+        n_pix_kern_max = torch.max(n_pix_kern).item()
         no_conv_necessary = True if n_pix_kern_max == 1 else False
         if no_conv_necessary:
             return flux, errs, no_conv_necessary
@@ -1056,7 +1056,7 @@ class PayneOrderEmulator(PayneEmulator):
         n_pix_kern = torch.floor(
             vsini_c.unsqueeze(1) * wave.unsqueeze(0) / dlambda_perpix.unsqueeze(0).unsqueeze(2) + 1
         )
-        n_pix_kern_max = torch.max(n_pix_kern)
+        n_pix_kern_max = torch.max(n_pix_kern).item()
         no_conv_necessary = True if n_pix_kern_max == 1 else False
         if no_conv_necessary:
             return flux, errs, no_conv_necessary
