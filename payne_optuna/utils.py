@@ -122,7 +122,7 @@ def pad_array(array, pad_size, pad_value):
 
 
 def unpad_array(array, pad_size):
-    return array[..., pad_size.to(int):-pad_size.to(int)]
+    return array[..., int(pad_size):-int(pad_size)]
 
 
 def vmacro_integrand(u):
